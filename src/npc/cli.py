@@ -93,6 +93,7 @@ def cmd_say(args) -> int:
 def cmd_run(args) -> int:
     from .app import NPCApp
     from .doctor import print_report, run_checks
+    from .events import print_event
     from .llm import make_llm_client
 
     config = load_config(Path(args.campaign))
@@ -133,7 +134,7 @@ def cmd_run(args) -> int:
         print("! spoken replies disabled this session (see FAILs above)")
 
     app = NPCApp(config, llm=llm, transcriber=transcriber, recorder=recorder,
-                 speaker=speaker)
+                 speaker=speaker, on_event=print_event)
     app.start()
     print(f"\n{app.npc_name} is listening — session {app.session_no}.")
     print(f"Hold {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
