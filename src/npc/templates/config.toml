@@ -7,8 +7,9 @@
 # min_clip_seconds = 0.25           # discard accidental taps shorter than this
 
 [llm]
-# model = "qwen2.5:7b-instruct"     # any Ollama model tag
-# host = "http://localhost:11434"
+# backend = "ollama"                # or "openai" for Jan, LM Studio, llama.cpp, vLLM, …
+# model = "qwen2.5:7b-instruct"     # Ollama tag, or the model name your app lists
+# host = "http://localhost:11434"   # Jan: http://localhost:1337  LM Studio: http://localhost:1234
 
 [stt]
 # model = "small"                   # whisper size: tiny/base/small/medium/large-v3

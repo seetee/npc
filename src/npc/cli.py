@@ -93,7 +93,7 @@ def cmd_say(args) -> int:
 def cmd_run(args) -> int:
     from .app import NPCApp
     from .doctor import print_report, run_checks
-    from .llm import OllamaClient
+    from .llm import make_llm_client
 
     config = load_config(Path(args.campaign))
     if not config.character_file.exists():
@@ -110,7 +110,7 @@ def cmd_run(args) -> int:
     if "Audio subsystem" in failed_soft:
         failed_soft |= {"Audio input", "Audio output"}
 
-    llm = OllamaClient(config.llm.host, config.llm.model)
+    llm = make_llm_client(config.llm)
 
     transcriber = recorder = None
     if not ({"Whisper model", "Audio input", "Push-to-talk"} & failed_soft):

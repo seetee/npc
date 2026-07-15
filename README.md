@@ -42,7 +42,9 @@ talking to it.
 
 - Linux (X11 or Wayland — push-to-talk works on both)
 - Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/)
-- [Ollama](https://ollama.com) for the local LLM
+- A local LLM server: [Ollama](https://ollama.com) (default) — **or** any app
+  serving an OpenAI-compatible API, like [Jan](https://jan.ai),
+  [LM Studio](https://lmstudio.ai), llama.cpp's server, or vLLM
 - A microphone and speakers
 - Optional but recommended: an NVIDIA GPU (a 7B–14B model + GPU whisper make
   responses fast enough for live play; CPU-only works with smaller models)
@@ -64,12 +66,19 @@ logins. (Why: terminals never report key *releases*, so hold-to-talk reads the
 keyboard device directly via evdev, which requires membership in the `input`
 group. No root needed.)
 
-### 2. Ollama + a model
+### 2. A local LLM server
+
+**Option A — Ollama** (default, fully terminal-driven):
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen2.5:7b-instruct       # the default model (~4.5 GB)
 ```
+
+**Option B — an LLM app you already run** (Jan, LM Studio, llama.cpp, vLLM, …):
+no extra software needed. Enable the app's local API server, load a model, and
+point `config.toml` at it — see
+[Using Jan, LM Studio, or another LLM app](#using-jan-lm-studio-or-another-llm-app).
 
 ### 3. This project
 
@@ -143,7 +152,9 @@ its default:
 
 ```toml
 [llm]
-# model = "qwen2.5:7b-instruct"     # any Ollama model tag
+# backend = "ollama"                # or "openai" for Jan, LM Studio, llama.cpp, …
+# model = "qwen2.5:7b-instruct"     # Ollama tag, or the model name your app lists
+# host = "http://localhost:11434"
 [stt]
 # model = "small"                   # whisper size: tiny/base/small/medium/large-v3
 # language = "auto"                 # auto-detects Swedish and English
@@ -164,6 +175,23 @@ Rough model guidance:
 | CPU only | `qwen2.5:3b-instruct`, `llama3.2:3b` | `base` or `small` |
 | 8 GB VRAM | `qwen2.5:7b-instruct` (default), `llama3.1:8b` | `small` |
 | 12+ GB VRAM | `qwen2.5:14b-instruct`, `mistral-nemo` | `small` or `medium` |
+
+### Using Jan, LM Studio, or another LLM app
+
+If a machine already runs an LLM app, `npc` can use it instead of Ollama —
+anything that serves the standard OpenAI-compatible API works. In the app,
+enable its local API server and note the model name it exposes, then:
+
+```toml
+[llm]
+backend = "openai"                     # aliases: jan, lmstudio, llamacpp, vllm
+host = "http://localhost:1337"         # Jan's default; LM Studio uses :1234
+model = "qwen2.5-7b-instruct"          # exactly as the app lists it
+```
+
+(`/v1` is appended automatically if you leave it off.) `npc doctor` will show
+which models the server actually offers if the configured name doesn't match.
+The mid-session `/reload` model swap works the same as with Ollama.
 
 ## Languages
 

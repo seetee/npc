@@ -11,6 +11,7 @@ DEFAULT_VOICES_DIR = Path.home() / ".local" / "share" / "npc" / "voices"
 
 @dataclass
 class LlmConfig:
+    backend: str = "ollama"  # or "openai" for Jan, LM Studio, llama.cpp, vLLM, …
     model: str = "qwen2.5:7b-instruct"
     host: str = "http://localhost:11434"
 

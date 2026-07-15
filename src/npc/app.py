@@ -88,6 +88,7 @@ class NPCApp:
             applied.append(f"LLM model → {new.llm.model}")
         restart_needed = [
             name for name, changed in (
+                ("llm.backend", new.llm.backend != self.config.llm.backend),
                 ("llm.host", new.llm.host != self.config.llm.host),
                 ("[stt]", new.stt != self.config.stt),
                 ("[tts]", new.tts != self.config.tts),

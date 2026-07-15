@@ -29,18 +29,23 @@ def _whisper_cache_dir(model_size: str) -> Path:
 def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
     checks: list[CheckResult] = []
 
-    # 1. Ollama server
-    from .llm import OllamaClient
+    # 1. LLM server (Ollama or any OpenAI-compatible app)
+    from .llm import OllamaClient, make_llm_client
 
-    client = OllamaClient(config.llm.host, config.llm.model)
+    client = make_llm_client(config.llm)
+    is_ollama = isinstance(client, OllamaClient)
     up = client.is_up()
     checks.append(CheckResult(
-        "Ollama server", up, detail=config.llm.host, hard=True,
+        "LLM server", up, hard=True,
+        detail=f"{config.llm.backend} at {config.llm.host}",
         fix=("curl -fsSL https://ollama.com/install.sh | sh   "
-             "# then: systemctl --user start ollama  (or)  sudo systemctl start ollama"),
+             "# then: systemctl --user start ollama  (or)  sudo systemctl start ollama"
+             if is_ollama else
+             "start your LLM app (Jan, LM Studio, …) and enable its local API "
+             "server; put its address in config.toml under [llm] host"),
     ))
 
-    # 2. LLM model pulled
+    # 2. LLM model present
     if up:
         has = client.has_model()
         detail = config.llm.model
@@ -48,8 +53,12 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
             others = client.available_models()
             if others:
                 detail += f" (available: {', '.join(others[:5])})"
-        checks.append(CheckResult("LLM model", has, detail=detail, hard=True,
-                                  fix=f"ollama pull {config.llm.model}"))
+        checks.append(CheckResult(
+            "LLM model", has, detail=detail, hard=True,
+            fix=(f"ollama pull {config.llm.model}" if is_ollama else
+                 "download/load the model in your LLM app, or set [llm] model in "
+                 "config.toml to one of the available names"),
+        ))
 
     # 3. Whisper model cached (offline after first download)
     cached = _whisper_cache_dir(config.stt.model).exists()
