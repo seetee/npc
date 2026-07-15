@@ -1,0 +1,49 @@
+[project]
+name = "npc"
+version = "0.1.0"
+description = "Offline AI NPC voice agent for tabletop RPGs like Numenera"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-or-later"
+dependencies = [
+    "evdev>=1.7",
+    "faster-whisper>=1.1",
+    "numpy>=1.26",
+    "ollama>=0.5",
+    "piper-tts>=1.2",
+    "prompt-toolkit>=3.0",
+    "sounddevice>=0.5",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12>=9",
+]
+
+[project.scripts]
+npc = "npc.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/npc"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: needs real models/services (run with `pytest -m integration`)",
+]
+addopts = "-m 'not integration'"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]

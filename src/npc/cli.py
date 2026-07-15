@@ -1,0 +1,246 @@
+"""Command-line entrypoint: init / run / doctor / transcribe / say."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from importlib import resources
+from pathlib import Path
+
+from .config import ConfigError, load_config
+
+TEMPLATE_FILES = ("character.md", "adventure.md", "logbook.md", "config.toml")
+
+
+def init_campaign(campaign_dir: Path) -> list[Path]:
+    """Scaffold a campaign directory from templates; never overwrites."""
+    campaign_dir.mkdir(parents=True, exist_ok=True)
+    (campaign_dir / "sessions").mkdir(exist_ok=True)
+    created = []
+    templates = resources.files("npc") / "templates"
+    for name in TEMPLATE_FILES:
+        target = campaign_dir / name
+        if not target.exists():
+            target.write_text((templates / name).read_text(encoding="utf-8"),
+                              encoding="utf-8")
+            created.append(target)
+    return created
+
+
+def cmd_init(args) -> int:
+    created = init_campaign(Path(args.campaign))
+    if created:
+        print(f"Campaign scaffolded in {Path(args.campaign).resolve()}:")
+        for path in created:
+            print(f"  {path.name}")
+        print("\nEdit character.md (your NPC) and adventure.md, then: npc run "
+              + args.campaign)
+    else:
+        print("All campaign files already exist — nothing created.")
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    from .doctor import print_report, run_checks
+
+    config = load_config(Path(args.campaign))
+    print(f"Checking setup for {config.campaign_dir} …")
+    checks = run_checks(config, deep=True)
+    all_ok = all(c.ok for c in checks)
+    print_report(checks)
+    print("\nAll good — ready to play." if all_ok
+          else "\nFix the FAILs above (commands are copy-pasteable).")
+    return 0 if all_ok else 1
+
+
+def cmd_transcribe(args) -> int:
+    import wave
+
+    import numpy as np
+
+    from .audio.recorder import AudioClip
+    from .stt import WhisperTranscriber
+
+    config = load_config(Path(args.campaign))
+    with wave.open(args.file, "rb") as w:
+        if w.getsampwidth() != 2:
+            print("only 16-bit PCM wav supported", file=sys.stderr)
+            return 1
+        frames = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        if w.getnchannels() > 1:
+            frames = frames.reshape(-1, w.getnchannels()).mean(axis=1).astype(np.int16)
+        clip = AudioClip(samples=frames, sample_rate=w.getframerate())
+    transcriber = WhisperTranscriber(config.stt.model, config.stt.language,
+                                     config.stt.device)
+    print(transcriber.transcribe(clip))
+    return 0
+
+
+def cmd_say(args) -> int:
+    from .tts import PiperSpeaker, download_hint
+
+    config = load_config(Path(args.campaign))
+    voice_path = config.tts.voice_path
+    if not voice_path.exists():
+        print(f"voice not found: {voice_path}", file=sys.stderr)
+        print(f"download it: {download_hint(config.tts.voice, voice_path.parent)}",
+              file=sys.stderr)
+        return 1
+    PiperSpeaker(voice_path).say(args.text)
+    return 0
+
+
+def cmd_run(args) -> int:
+    from .app import NPCApp
+    from .doctor import print_report, run_checks
+    from .llm import OllamaClient
+
+    config = load_config(Path(args.campaign))
+    if not config.character_file.exists():
+        print(f"no character.md in {config.campaign_dir} — run: npc init "
+              f"{args.campaign}", file=sys.stderr)
+        return 1
+
+    checks = run_checks(config, deep=False)
+    if not print_report(checks):
+        print("\nCannot start — fix the hard failures above (or run `npc doctor`).",
+              file=sys.stderr)
+        return 1
+    failed_soft = {c.name.split(" (")[0] for c in checks if not c.ok}
+    if "Audio subsystem" in failed_soft:
+        failed_soft |= {"Audio input", "Audio output"}
+
+    llm = OllamaClient(config.llm.host, config.llm.model)
+
+    transcriber = recorder = None
+    if not ({"Whisper model", "Audio input", "Push-to-talk"} & failed_soft):
+        from .audio.recorder import PushToTalkRecorder
+        from .stt import WhisperTranscriber
+
+        print("Loading whisper model…")
+        transcriber = WhisperTranscriber(config.stt.model, config.stt.language,
+                                         config.stt.device)
+        recorder = PushToTalkRecorder()
+    else:
+        print("! voice input disabled this session (see FAILs above); /say still works")
+
+    speaker = None
+    if "Piper voice" not in failed_soft and "Audio output" not in failed_soft:
+        from .tts import PiperSpeaker
+
+        speaker = PiperSpeaker(config.tts.voice_path)
+    else:
+        print("! spoken replies disabled this session (see FAILs above)")
+
+    app = NPCApp(config, llm=llm, transcriber=transcriber, recorder=recorder,
+                 speaker=speaker)
+    app.start()
+    print(f"\n{app.npc_name} is listening — session {app.session_no}.")
+    print(f"Hold {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
+
+    action = _run_repl(app, config, ptt_enabled=recorder is not None)
+    app.shutdown(summarize=(action == "end"))
+    print("Farewell.")
+    return 0
+
+
+def _run_repl(app, config, ptt_enabled: bool) -> str:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.patch_stdout import patch_stdout
+
+    session = PromptSession("gm> ")
+    listener = None
+    if ptt_enabled:
+        try:
+            listener = _start_hotkey(app, config, session)
+        except Exception as e:
+            print(f"! push-to-talk disabled: {e}")
+
+    try:
+        with patch_stdout():
+            while True:
+                try:
+                    line = session.prompt()
+                except (EOFError, KeyboardInterrupt):
+                    return "quit"
+                action = app.handle_line(line)
+                if action != "ok":
+                    return action
+    finally:
+        if listener is not None:
+            listener.stop()
+
+
+def _start_hotkey(app, config, session):
+    """Wire evdev press/release to the app, mitigating the terminal artifact:
+    a held spacebar also types spaces into the prompt, so we snapshot the
+    buffer on press and restore it (and flush stdin) on release."""
+    import termios
+
+    from .hotkey import PTTListener, find_ptt_devices, keycode_from_name
+
+    keycode = keycode_from_name(config.hotkey.key)
+    devices = find_ptt_devices(keycode, config.hotkey.device)
+    snapshot = {"text": ""}
+
+    def on_press():
+        try:
+            snapshot["text"] = session.app.current_buffer.text
+        except Exception:
+            pass
+        app.on_ptt_press()
+
+    def on_release():
+        app.on_ptt_release()
+        try:
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
+            pt_app = session.app
+            saved = snapshot["text"]
+
+            def restore():
+                from prompt_toolkit.document import Document
+
+                pt_app.current_buffer.set_document(Document(saved, len(saved)))
+
+            if pt_app.is_running and pt_app.loop is not None:
+                pt_app.loop.call_soon_threadsafe(restore)
+        except Exception:
+            pass
+
+    listener = PTTListener(devices, keycode, on_press, on_release,
+                           grab=config.hotkey.grab)
+    listener.start()
+    return listener
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="npc",
+        description="Offline AI NPC voice agent for tabletop RPGs.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def add(name, func, help_text):
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument("campaign", help="campaign directory")
+        p.set_defaults(func=func)
+        return p
+
+    add("init", cmd_init, "scaffold a new campaign directory")
+    add("run", cmd_run, "run the NPC for a play session")
+    add("doctor", cmd_doctor, "check (and set up) everything the NPC needs")
+    p = add("transcribe", cmd_transcribe, "debug: transcribe a wav file")
+    p.add_argument("file", help="16-bit PCM wav file")
+    p = add("say", cmd_say, "debug: speak a line with the NPC voice")
+    p.add_argument("text", help="text to speak")
+
+    args = parser.parse_args(argv)
+    try:
+        return args.func(args)
+    except ConfigError as e:
+        print(f"config error: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
