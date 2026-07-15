@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 _SESSION_HEADING = re.compile(r"^## Session (\d+)\b", re.MULTILINE)
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via temp file + rename so a crash can never truncate the file."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 class Logbook:
@@ -37,6 +56,9 @@ class Logbook:
         return text[starts[max(0, len(starts) - n_sessions)]:].strip()
 
     def upsert_entry(self, session_no: int, date: str, body: str) -> None:
+        # demote any "## Session N" line the LLM produced inside the body —
+        # it would corrupt section parsing (numbering, tail, future upserts)
+        body = _SESSION_HEADING.sub(r"### Session \1", body)
         heading = f"## Session {session_no} — {date}"
         section = f"{heading}\n\n{body.strip()}\n"
         text = self._read()
@@ -46,13 +68,15 @@ class Logbook:
             re.MULTILINE | re.DOTALL,
         )
         if pattern.search(text):
-            text = pattern.sub(section, text, count=1)
+            # lambda: section is literal text, not a replacement template
+            # (a "\1" or stray backslash in LLM output must not be expanded)
+            text = pattern.sub(lambda _match: section, text, count=1)
         else:
             if text and not text.endswith("\n"):
                 text += "\n"
             text += ("\n" if text else "") + section
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(text, encoding="utf-8")
+        _atomic_write(self.path, text)
 
 
 class Transcript:
