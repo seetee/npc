@@ -1,0 +1,41 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+`npc` — a fully-offline terminal voice agent that role-plays a TTRPG NPC at the game table. Hold a push-to-talk key → mic records → faster-whisper transcribes (Swedish/English auto-detect) → a local LLM via Ollama replies in character → Piper speaks it aloud (British English, `en_GB-alba-medium`). Voice input is ALWAYS in-character player dialogue; typed terminal lines are out-of-character GM instructions to the LLM. Design doc: `/home/kenneth/.claude/plans/the-project-is-as-squishy-pond.md`.
+
+## Commands
+
+```bash
+uv sync --group dev --extra cuda   # install (cuda extra = GPU whisper; this machine has an RTX 3060)
+uv run pytest                      # unit tests — hardware-free, fakes injected
+uv run pytest -m integration      # real whisper/piper/ollama smoke tests (auto-skip if missing)
+uv run pytest tests/test_app_pipeline.py::test_voice_turn_end_to_end   # single test
+uv run ruff check .
+uv run npc init|doctor|run <campaign-dir>     # scaffold / setup-check / play
+uv run npc say "text" <dir>  /  npc transcribe file.wav <dir>   # debug TTS / STT
+```
+
+## Architecture
+
+The pipeline is orchestrated by `src/npc/app.py` (`NPCApp`) — a state machine (`IDLE → RECORDING → PROCESSING → SPEAKING`) with four threads: the prompt_toolkit REPL (main), an evdev hotkey listener (`hotkey.py`), a single worker that serializes STT → LLM → TTS turns via one `queue.Queue`, and sounddevice's callback thread. Push-to-talk during SPEAKING is barge-in (stops playback, starts recording); during PROCESSING it reports busy.
+
+Key seams (all Protocol-typed, faked in `tests/test_app_pipeline.py`):
+- `audio/recorder.py` — `Recorder` protocol; v1 `PushToTalkRecorder`. A future VAD recorder (tap to start, silence stops) implements the same protocol and fires `on_auto_stop`; nothing downstream changes.
+- `stt.py` / `tts.py` / `llm.py` — `Transcriber`, `Speaker`, and the Ollama client. `stt.py` preloads pip-installed CUDA libs and falls back to CPU if CUDA breaks; resamples non-16kHz input.
+
+Prompt assembly (`session/prompt.py`): system prompt is rebuilt every turn from `character.md` + `adventure.md` + logbook tail + accumulated OOC notes. OOC lines appear twice on purpose — inline in history (timing) and in the standing-instructions block (survives history trimming, `session/history.py`). The logbook (`session/logbook.py`) upserts one `## Session N — date` section per session (checkpoints/`/save`/`/end` re-summarize and replace, never duplicate); raw turns are appended crash-safe to `sessions/*-transcript.md`.
+
+A campaign directory (see `src/npc/templates/`) is the unit of play; `config.py` loads its optional `config.toml` over dataclass defaults. The NPC's display name is the first `# heading` of `character.md`. `/reload` re-reads the markdown files AND `config.toml`: the LLM model applies live (it's per-request), while `[stt]`/`[tts]`/`[hotkey]` changes are flagged as needing a restart (`app.py:_reload_config`).
+
+## Gotchas
+
+- Terminals never deliver key-up events — that's why hotkeys use evdev (works on Wayland, needs the user in the `input` group). `evdev.list_devices()` silently hides devices you lack permission for; `find_ptt_devices` compensates.
+- A held spacebar still types spaces into the REPL; `cli.py:_start_hotkey` snapshots/restores the prompt buffer around each press. A dedicated USB button should instead set `hotkey.grab = true`.
+- In `config.toml` templates, top-level keys must stay above `[sections]` (TOML semantics).
+- `sounddevice` needs the system package `libportaudio2` on Linux.
+- Replies must always be English (Alba voice) even for Swedish input — enforced in `ROLE_FRAMING`, tested in `test_prompt.py`.
+
+License is AGPL-3.0-or-later — new dependencies must be compatible (Piper is GPL-3.0, fine).
