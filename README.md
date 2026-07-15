@@ -145,6 +145,11 @@ open threads), and the most recent entries are fed back to it next session. The
 logbook also auto-checkpoints every 20 player turns, so a crash costs you
 nothing.
 
+> **Tell your table:** everything said to the NPC is transcribed and stored
+> locally in `sessions/`, and summarized into the logbook. It never leaves the
+> machine — but recording people's words is still something your players should
+> know about and be okay with.
+
 ## Choosing and changing models
 
 `config.toml` is scaffolded with every setting present as a comment showing
