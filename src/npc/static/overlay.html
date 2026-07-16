@@ -21,13 +21,19 @@
   initial-value: 1;
 }
 
+/* Contrast targets (WCAG 2.x, measured composited over the glass sitting on
+   black / gray / WHITE OBS scenes): reply >= 7.9:1, player >= 5.5:1, labels
+   >= 4.55:1, alert >= 5.1:1 — all AA-small-text or better even on a white
+   scene. The glass is 85% opaque so the scene behind it can't sink the text;
+   --faint is for hairlines only, never text. */
 :root {
-  --phosphor: oklch(82% 0.13 85);      /* warm amber — old readout glass    */
-  --datasphere: oklch(78% 0.11 200);   /* pale cyan — the datasphere/weird  */
-  --alert: oklch(66% 0.17 30);         /* clay red — microphone is live     */
-  --dim: color-mix(in oklch, var(--phosphor) 55%, transparent);
-  --faint: color-mix(in oklch, var(--phosphor) 26%, transparent);
-  --glass: oklch(20% 0.02 130 / 0.5);
+  --phosphor: oklch(85% 0.12 85);      /* warm amber — old readout glass    */
+  --datasphere: oklch(80% 0.11 200);   /* pale cyan — the datasphere/weird  */
+  --alert: oklch(74% 0.15 30);         /* clay red — microphone is live     */
+  --dim: color-mix(in oklch, var(--phosphor) 78%, transparent);
+  --label: color-mix(in oklch, var(--phosphor) 68%, transparent);
+  --faint: color-mix(in oklch, var(--phosphor) 30%, transparent);
+  --glass: oklch(17% 0.02 130 / 0.85);
   --state-color: var(--dim);
 }
 
@@ -119,7 +125,7 @@ dl {
     font-size: 0.72em;
     letter-spacing: 0.22em;
     text-transform: uppercase;
-    color: var(--faint);
+    color: var(--label);
 
     &::before { content: "» "; }
     &:has(+ dd:empty) { display: none; }   /* nothing said yet — show nothing */
@@ -151,7 +157,7 @@ footer {
   border-block-start: 1px solid var(--faint);
   font-size: 0.68em;
   letter-spacing: 0.22em;
-  color: var(--faint);
+  color: var(--label);
 
   #link { color: var(--alert); }
 }
