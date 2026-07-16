@@ -201,9 +201,11 @@ Two optional flags on `npc run`:
   `/status` always shows the last/average turn time.
 - `--overlay` (or `[overlay] enabled = true` in `config.toml`) serves a live
   table display at `http://127.0.0.1:8765` — add it as an OBS browser source
-  or open it on a tablet facing the players. It shows the NPC's name, a
-  state light, the last player line, and the reply streaming in as it's
-  spoken. Localhost only.
+  or open it in a browser on the same machine (e.g. a second monitor facing
+  the players). It shows the NPC's name, a state light, the last player line,
+  and the reply streaming in as it's spoken. Deliberately localhost-only —
+  the event stream is unauthenticated, so it never listens on the network; a
+  separate tablet can't reach it (a LAN opt-in is on the roadmap).
 
 > **Tell your table:** everything said to the NPC is transcribed and stored
 > locally in `sessions/`, and summarized into the logbook. It never leaves the
