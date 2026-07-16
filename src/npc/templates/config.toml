@@ -29,6 +29,11 @@
 # voice = "en_GB-alba-medium"       # Piper voice (Alba, British English)
 # voices_dir = "~/.local/share/npc/voices"
 
+# [tts.voices]                      # per-NPC voices; key = character file stem
+# korval = "en_GB-northern_english_male-medium"   # characters/korval.md
+# character = "en_GB-alba-medium"                 # the campaign-root character.md
+#                                   # unmapped characters use the default voice above
+
 [overlay]
 # enabled = false                   # broadcast events + serve the overlay page while running
 # port = 8765                       # OBS browser source / browser: http://127.0.0.1:8765

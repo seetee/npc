@@ -2,7 +2,8 @@
 
 import pytest
 
-from npc.doctor import CheckResult, apply_fixes
+from npc.config import Config, TtsConfig
+from npc.doctor import CheckResult, apply_fixes, npc_voice_checks
 
 
 def test_apply_fixes_runs_only_confirmed_fixers():
@@ -35,3 +36,40 @@ def test_apply_fixes_asks_nothing_when_all_pass():
     checks = [CheckResult("fine", True, fixer=lambda: None)]
     assert not apply_fixes(checks, ask=lambda prompt: pytest.fail("should not ask"),
                            out=lambda line: None)
+
+
+def multi_config(tmp_path, voices):
+    (tmp_path / "characters").mkdir()
+    (tmp_path / "characters" / "korval.md").write_text("# Korval\n")
+    return Config(campaign_dir=tmp_path,
+                  tts=TtsConfig(voices_dir=str(tmp_path / "voices"), voices=voices))
+
+
+def test_unknown_voice_mapping_stem_is_flagged(tmp_path):
+    config = multi_config(tmp_path, {"korvall": "en_GB-x"})  # typo'd stem
+    checks = npc_voice_checks(config)
+    mapping = [c for c in checks if c.name.startswith("NPC voice mapping")]
+    assert len(mapping) == 1 and not mapping[0].ok
+    assert "korvall" in mapping[0].detail and "korval" in mapping[0].detail
+
+
+def test_missing_mapped_voice_gets_a_fixer(tmp_path):
+    config = multi_config(tmp_path, {"korval": "en_GB-extra-voice"})
+    checks = npc_voice_checks(config)
+    voice = [c for c in checks if c.name == "NPC voice (en_GB-extra-voice)"]
+    assert len(voice) == 1 and not voice[0].ok
+    assert voice[0].fixer is not None
+    assert "en_GB-extra-voice" in voice[0].fix_label
+
+
+def test_mapped_default_voice_is_not_rechecked(tmp_path):
+    config = multi_config(tmp_path, {"korval": "en_GB-alba-medium"})  # = default
+    assert [c for c in npc_voice_checks(config) if c.name.startswith("NPC voice (")] == []
+
+
+def test_stem_collision_is_flagged(tmp_path):
+    config = multi_config(tmp_path, {})
+    (tmp_path / "character.md").write_text("# Vess\n")
+    (tmp_path / "characters" / "character.md").write_text("# Impostor\n")
+    collision = [c for c in npc_voice_checks(config) if c.name == "Character files"]
+    assert len(collision) == 1 and not collision[0].ok

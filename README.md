@@ -145,6 +145,25 @@ The scaffolded `character.md` contains a complete example NPC (Vess, a wary
 Aeon Priest) showing the intended level of detail. The **Secrets** and **Hard
 rules** sections are where you control what the NPC will and won't reveal.
 
+### Multiple NPCs
+
+Drop more character sheets into a `characters/` directory — each `.md` file
+is an NPC, named by its first `# heading` — and switch at the table with
+`/npc <name>` (`/npc` alone lists everyone). Each NPC keeps **separate
+memory**: their own conversation, their own standing GM notes, and their own
+logbook (`logbooks/<file>.md`), so a secret told to one NPC never reaches
+another — not even across sessions. Give each their own voice in
+`config.toml`:
+
+```toml
+[tts.voices]
+korval = "en_GB-northern_english_male-medium"   # characters/korval.md
+```
+
+`npc doctor --fix` offers to download any mapped voice that's missing. The
+original `character.md` keeps working unchanged alongside (or instead of)
+`characters/`.
+
 ## Playing a session
 
 ```bash
@@ -157,6 +176,7 @@ uv run npc run campaigns/mygame
 | press while the NPC is talking | interrupts the reply and starts recording (walkie-talkie style) |
 | type anything | out-of-character instruction to the LLM |
 | `/say Have you seen the raiders?` | typed in-character player line (no mic needed) |
+| `/npc korval` | switch which NPC you're talking to (`/npc` lists them) |
 | `/save` | write the session summary to the logbook now |
 | `/reload` | re-read `character.md`, `adventure.md`, `config.toml` |
 | `/status` | current state, model, session number |

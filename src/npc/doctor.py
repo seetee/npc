@@ -105,6 +105,7 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
         fixer=fix_voice,
         fix_label=f"download the {config.tts.voice} voice (~60 MB)",
     ))
+    checks.extend(npc_voice_checks(config))
 
     # 5. Audio devices
     try:
@@ -138,6 +139,50 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
             fix="sudo usermod -aG input $USER   # then log out and back in",
         ))
 
+    return checks
+
+
+def npc_voice_checks(config: Config) -> list[CheckResult]:
+    """[tts.voices] sanity: every key must name a character file stem, every
+    mapped voice must exist on disk (downloadable via --fix). Named "NPC
+    voice …" on purpose — cmd_run's soft-fail matching for "Piper voice"
+    must not catch these, because a missing per-NPC voice only means a
+    fallback to the default voice, never disabled speech."""
+    from .roster import discover_character_files
+
+    checks: list[CheckResult] = []
+    stems = {ref.stem for ref in discover_character_files(config.campaign_dir)}
+    for key in sorted(config.tts.voices):
+        if key not in stems:
+            checks.append(CheckResult(
+                f"NPC voice mapping ({key})", False,
+                detail=(f"no character file for stem {key!r} — have: "
+                        f"{', '.join(sorted(stems)) or 'none'}"),
+                fix="rename the [tts.voices] key or the character file",
+            ))
+    for voice in sorted(set(config.tts.voices.values()) - {config.tts.voice}):
+        path = config.tts.voice_path_for(voice)
+
+        def fix_npc_voice(voice=voice, path=path):
+            from piper.download_voices import download_voice
+
+            path.parent.mkdir(parents=True, exist_ok=True)
+            download_voice(voice, path.parent)
+
+        checks.append(CheckResult(
+            f"NPC voice ({voice})", path.exists(), detail=str(path),
+            fix=download_hint(voice, path.parent),
+            fixer=fix_npc_voice,
+            fix_label=f"download the {voice} voice (~60 MB)",
+        ))
+    if (config.character_file.exists()
+            and (config.characters_dir / "character.md").exists()):
+        checks.append(CheckResult(
+            "Character files", False,
+            detail="both character.md and characters/character.md exist — "
+                   "the campaign-root file wins, the other is ignored",
+            fix="rename characters/character.md",
+        ))
     return checks
 
 
