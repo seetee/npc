@@ -37,7 +37,7 @@ from .events import (
 )
 from .session.history import ConversationHistory
 from .session.logbook import Logbook, Transcript
-from .session.prompt import build_system_prompt
+from .session.prompt import build_system_prompt, extract_dialogue
 
 HELP = """\
 Voice (hold the push-to-talk key)  in-character player dialogue
@@ -289,7 +289,8 @@ class NPCApp:
             self.logbook.tail(self.config.logbook_sessions_in_prompt),
             self.ooc_notes,
         )
-        reply = self.llm.chat(system, self.history.as_messages())
+        reply = extract_dialogue(self.llm.chat(system, self.history.as_messages()),
+                                 self.npc_name)
         self.history.add_npc(reply)
         self.transcript.append_turn("NPC", reply)
         self._emit(NpcReplied(self.npc_name, reply))

@@ -22,10 +22,11 @@ class FakeLLM:
 
     def __init__(self):
         self.calls = []
+        self.reply = "Greetings, traveler."
 
     def chat(self, system, messages):
         self.calls.append((system, messages))
-        return "Greetings, traveler."
+        return self.reply
 
     def summarize_session(self, transcript, logbook_tail):
         return f"**Location:** the docks\n(summary of {len(transcript)} chars)"
@@ -127,6 +128,16 @@ def test_say_command_is_in_character(app):
     _, messages = app.llm.calls[-1]
     assert messages[-1]["content"] == 'PLAYER (spoken): "I offer you this shin"'
     assert app.speaker.spoken == ["Greetings, traveler."]
+
+
+def test_llm_decoration_is_stripped_before_speaking(app):
+    app.llm.reply = ('Vess of the Amber Monolith: *adjusts her hood* '
+                     '"Greetings, traveler." (smiles)')
+    app.handle_line("/say hello")
+    drain(app)
+    assert app.speaker.spoken == ["Greetings, traveler."]
+    assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
+    assert "**NPC:** Greetings, traveler." in app.transcript.read()
 
 
 def test_too_short_clip_discarded(app):

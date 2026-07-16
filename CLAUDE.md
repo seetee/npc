@@ -35,9 +35,10 @@ A campaign directory (see `src/npc/templates/`) is the unit of play; `config.py`
 ## Gotchas
 
 - Terminals never deliver key-up events — that's why hotkeys use evdev (works on Wayland, needs the user in the `input` group). `evdev.list_devices()` silently hides devices you lack permission for; `find_ptt_devices` compensates.
-- A held spacebar still types spaces into the REPL; `cli.py:_start_hotkey` snapshots/restores the prompt buffer around each press. A dedicated USB button should instead set `hotkey.grab = true`.
+- A held spacebar still types spaces into the REPL; `cli.py:_ptt_callbacks` snapshots/restores the prompt buffer around each press, and treats a press as typing (no recording) when the line already has text — so spaces typed inside `/say …` or an OOC note never trigger PTT. Both mitigations apply only to typing keys (`_key_types_text`); F12/right-ctrl/a grabbed USB button still allow PTT mid-line. A dedicated USB button should set `hotkey.grab = true`.
 - In `config.toml` templates, top-level keys must stay above `[sections]` (TOML semantics).
 - `sounddevice` needs the system package `libportaudio2` on Linux.
 - Replies must always be English (Alba voice) even for Swedish input — enforced in `ROLE_FRAMING`, tested in `test_prompt.py`.
+- Replies must be voice-only: `ROLE_FRAMING` forbids narration/stage directions/assistant behavior, and `session/prompt.py:extract_dialogue` strips what small models slip through anyway (`*actions*`, `(parentheticals)`, speaker labels, quote wrapping) before the reply reaches history/transcript/TTS.
 
 License is AGPL-3.0-or-later — new dependencies must be compatible (Piper is GPL-3.0, fine).

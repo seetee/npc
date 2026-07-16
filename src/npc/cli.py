@@ -173,30 +173,68 @@ def _run_repl(app, config, ptt_enabled: bool) -> str:
 
 
 def _start_hotkey(app, config, session):
-    """Wire evdev press/release to the app, mitigating the terminal artifact:
-    a held spacebar also types spaces into the prompt, so we snapshot the
-    buffer on press and restore it (and flush stdin) on release."""
-    import termios
-
+    """Wire evdev press/release to the app; see _ptt_callbacks for how the
+    hotkey coexists with the REPL when it is an ordinary typing key."""
     from .hotkey import PTTListener, find_ptt_devices, keycode_from_name
 
     keycode = keycode_from_name(config.hotkey.key)
     devices = find_ptt_devices(keycode, config.hotkey.device)
-    snapshot = {"text": ""}
+    typing_key = _key_types_text(config.hotkey.key) and not config.hotkey.grab
+    on_press, on_release = _ptt_callbacks(app, session, typing_key=typing_key)
+    listener = PTTListener(devices, keycode, on_press, on_release,
+                           grab=config.hotkey.grab)
+    listener.start()
+    return listener
+
+
+def _key_types_text(key_name: str) -> bool:
+    """True for hotkeys that also insert a character into the terminal."""
+    import re
+
+    return bool(re.fullmatch(
+        r"KEY_(SPACE|TAB|[A-Z0-9]|MINUS|EQUAL|COMMA|DOT|SLASH|SEMICOLON|APOSTROPHE|GRAVE)",
+        key_name))
+
+
+def _ptt_callbacks(app, session, typing_key: bool):
+    """Press/release handlers that coexist with the REPL.
+
+    A hotkey that is an ordinary typing key (the default spacebar) causes two
+    terminal artifacts:
+    - pressing it while a line is half-typed (an OOC note, /say …) is typing,
+      not push-to-talk — ignore the press entirely and let the character land
+      in the buffer;
+    - holding it on an empty line types characters into the prompt — snapshot
+      the buffer on press and restore it (and flush stdin) on release.
+    """
+    import termios
+
+    state = {"snapshot": "", "typing": False}
+
+    def buffer_text() -> str:
+        try:
+            return session.app.current_buffer.text
+        except Exception:
+            return ""
 
     def on_press():
-        try:
-            snapshot["text"] = session.app.current_buffer.text
-        except Exception:
-            pass
+        text = buffer_text()
+        if typing_key and text.strip():
+            state["typing"] = True
+            return
+        state["typing"] = False
+        state["snapshot"] = text
         app.on_ptt_press()
 
     def on_release():
+        if state["typing"]:
+            state["typing"] = False
+            return
         app.on_ptt_release()
         try:
             termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
             pt_app = session.app
-            saved = snapshot["text"]
+            saved = state["snapshot"]
 
             def restore():
                 from prompt_toolkit.document import Document
@@ -208,10 +246,7 @@ def _start_hotkey(app, config, session):
         except Exception:
             pass
 
-    listener = PTTListener(devices, keycode, on_press, on_release,
-                           grab=config.hotkey.grab)
-    listener.start()
-    return listener
+    return on_press, on_release
 
 
 def main(argv=None) -> int:

@@ -1,14 +1,25 @@
-"""Assembles the NPC system prompt from the campaign's markdown files."""
+"""Assembles the NPC system prompt and keeps replies voice-only."""
 
 from __future__ import annotations
+
+import re
 
 ROLE_FRAMING = """\
 You are role-playing a single non-player character (NPC) in a live tabletop RPG
 session. You ARE this character. Stay in character at all times.
 
 Rules:
-- Reply ONLY with the character's spoken words — no narration, no stage
-  directions, no quotation marks, no out-of-character commentary.
+- You exist only as a voice: everything you output is spoken aloud, word for
+  word, by the character. Reply ONLY with the character's spoken words — no
+  narration, no stage directions, no *actions*, no (parentheticals), no
+  quotation marks, no out-of-character commentary. Never describe yourself,
+  your tone, or the scene; whatever you cannot say out loud, you cannot
+  communicate at all.
+- You are not an assistant. Never offer the player options, help, or
+  suggestions; never ask what they would like you to do; never comment on the
+  conversation or the game itself. Speak only in response to what was just
+  said to you — do not volunteer new topics or keep talking once you have
+  answered.
 - Keep replies short and natural for spoken conversation: one to four
   sentences, unless the player explicitly asks you to elaborate.
 - Always answer in English, even if the player speaks Swedish or another
@@ -38,3 +49,37 @@ def build_system_prompt(
         lines = "\n".join(f"- {note}" for note in ooc_notes)
         parts.append("# Standing GM instructions (most recent last)\n\n" + lines)
     return "\n\n".join(parts) + "\n"
+
+
+_STAGE_DIRECTION = re.compile(r"\*[^*\n]+\*")      # *adjusts her hood*
+_PARENTHETICAL = re.compile(r"\([^()\n]*\)")       # (chuckles)
+_BRACKETED = re.compile(r"\[[^\[\]\n]*\]")         # [sighs]
+_QUOTE_PAIRS = (('"', '"'), ("“", "”"), ("'", "'"))
+
+
+def extract_dialogue(reply: str, npc_name: str = "") -> str:
+    """Reduce an LLM reply to what the character actually says out loud.
+
+    ROLE_FRAMING demands pure spoken dialogue, but small local models still
+    slip in stage directions, speaker labels, and quote wrapping — strip them
+    deterministically so the TTS never reads them aloud. If nothing speakable
+    survives (the model only narrated an action), fall back to the
+    de-markdowned original rather than leave the table in silence.
+    """
+    text = _STAGE_DIRECTION.sub(" ", reply.strip()).replace("*", "")
+    text = " ".join(text.split())
+    names = "|".join(re.escape(n) for n in (npc_name, "NPC") if n)
+    text = re.sub(rf"^(?:{names})\s*:\s*", "", text, flags=re.IGNORECASE)
+    text = _PARENTHETICAL.sub(" ", text)
+    text = _BRACKETED.sub(" ", text)
+    text = " ".join(text.split())
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)   # "hid it ." → "hid it."
+    text = re.sub(r"^[,;:\s]+", "", text)
+    for open_q, close_q in _QUOTE_PAIRS:
+        inner = text[1:-1]
+        if (len(text) > 1 and text.startswith(open_q) and text.endswith(close_q)
+                and open_q not in inner and close_q not in inner):
+            text = inner.strip()
+    if not text:
+        text = " ".join(reply.replace("*", " ").split())
+    return text
