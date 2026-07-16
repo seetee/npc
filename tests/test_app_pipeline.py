@@ -11,10 +11,12 @@ from npc.events import (
     ErrorOccurred,
     LogbookWritten,
     NpcReplied,
+    NpcReplyChunk,
     PlayerSpoke,
     RecordingDiscarded,
     StateChanged,
 )
+from npc.llm import StreamingNotSupported
 
 
 class FakeLLM:
@@ -276,6 +278,116 @@ def test_broken_event_subscriber_does_not_kill_the_session(config):
     app._queue.join()
     app._queue.put(None)
     assert len(app.llm.calls) == 1                 # turn still completed
+
+
+# ---------- streaming replies ----------
+
+STREAM_CHUNKS = ("*bows* Greetings, tra", "veler. What brings", " you to the docks?")
+
+
+class StreamingFakeLLM(FakeLLM):
+    def __init__(self, chunks=STREAM_CHUNKS):
+        super().__init__()
+        self.chunks = chunks
+        self.stream_calls = 0
+
+    def chat_stream(self, system, messages):
+        self.stream_calls += 1
+        yield from self.chunks
+
+
+class StreamingFakeSpeaker(FakeSpeaker):
+    def __init__(self, cancel_after=None):
+        super().__init__()
+        self.cancel_after = cancel_after
+
+    def say_stream(self, sentences):
+        spoken = []
+        for sentence in sentences:
+            spoken.append(sentence)
+            self.spoken.append(sentence)
+            if self.cancel_after is not None and len(spoken) >= self.cancel_after:
+                return spoken, True
+        return spoken, False
+
+
+@pytest.fixture
+def stream_app(config):
+    events = []
+    app = NPCApp(config, llm=StreamingFakeLLM(), speaker=StreamingFakeSpeaker(),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    yield app
+    app._queue.put(None)
+
+
+def test_streaming_speaks_sentences_and_records_full_reply(stream_app):
+    stream_app.handle_line("/say hello")
+    drain(stream_app)
+
+    assert stream_app.speaker.spoken == [
+        "Greetings, traveler.",                    # *bows* never spoken
+        "What brings you to the docks?",
+    ]
+    assert [e.text for e in of_type(stream_app, NpcReplyChunk)] == list(STREAM_CHUNKS)
+    assert of_type(stream_app, NpcReplied) == [NpcReplied(
+        "Vess of the Amber Monolith",
+        "Greetings, traveler. What brings you to the docks?",
+    )]
+    assert stream_app.llm.calls == []              # non-streaming chat() never used
+    assert ("**NPC:** Greetings, traveler. What brings you to the docks?"
+            in stream_app.transcript.read())
+    assert stream_app.state is State.IDLE
+
+
+def test_barge_in_mid_stream_records_only_what_was_heard(config):
+    events = []
+    app = NPCApp(config, llm=StreamingFakeLLM(),
+                 speaker=StreamingFakeSpeaker(cancel_after=1), on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say hello")
+    drain(app)
+    app._queue.put(None)
+
+    assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
+    content = app.transcript.read()
+    assert "**NPC:** Greetings, traveler." in content
+    assert "docks" not in content
+
+
+def test_server_rejecting_stream_falls_back_to_plain_chat(config):
+    class NoStreamLLM(FakeLLM):
+        def chat_stream(self, system, messages):
+            raise StreamingNotSupported("400: streaming not allowed")
+            yield  # pragma: no cover — makes this a generator
+
+    events = []
+    app = NPCApp(config, llm=NoStreamLLM(), speaker=StreamingFakeSpeaker(),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say hello")
+    drain(app)
+    app._queue.put(None)
+
+    assert len(app.llm.calls) == 1                 # fell back to chat()
+    assert app.speaker.spoken == ["Greetings, traveler."]
+    assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
+
+
+def test_stream_false_in_config_uses_plain_chat(config):
+    config.llm.stream = False
+    app = NPCApp(config, llm=StreamingFakeLLM(), speaker=StreamingFakeSpeaker(),
+                 on_event=lambda e: None)
+    app.start()
+    app.handle_line("/say hello")
+    drain(app)
+    app._queue.put(None)
+
+    assert app.llm.stream_calls == 0
+    assert len(app.llm.calls) == 1
 
 
 def test_checkpoint_every_n_turns(config):

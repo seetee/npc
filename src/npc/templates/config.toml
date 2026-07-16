@@ -12,6 +12,7 @@
 # host = "http://localhost:11434"   # Jan: http://localhost:1337  LM Studio: http://localhost:1234
 # timeout_seconds = 60              # per-request cap; a hung server becomes an error, not a stuck session
 # retries = 1                       # extra attempts after connection failures (HTTP errors never retry)
+# stream = true                     # speak sentence-by-sentence while the reply generates
 
 [stt]
 # model = "small"                   # whisper size: tiny/base/small/medium/large-v3

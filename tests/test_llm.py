@@ -1,8 +1,16 @@
+import json
+
 import httpx
 import pytest
 
 from npc.config import ConfigError, LlmConfig
-from npc.llm import LlmError, OllamaClient, OpenAICompatClient, make_llm_client
+from npc.llm import (
+    LlmError,
+    OllamaClient,
+    OpenAICompatClient,
+    StreamingNotSupported,
+    make_llm_client,
+)
 
 
 def make_client(handler, host="http://localhost:1337", model="qwen2.5-7b"):
@@ -125,6 +133,65 @@ def test_ollama_connection_error_is_friendly():
                           transport=httpx.MockTransport(handler))
     with pytest.raises(LlmError, match="ollama serve"):
         client.chat("S", [])
+
+
+def sse(*chunks):
+    lines = [f'data: {json.dumps({"choices": [{"delta": {"content": c}}]})}'
+             for c in chunks]
+    lines.append('data: {"choices": []}')  # usage-only final chunk some servers send
+    lines.append("data: [DONE]")
+    return httpx.Response(200, content="\n".join(lines).encode(),
+                          headers={"content-type": "text/event-stream"})
+
+
+def test_chat_stream_parses_sse_until_done():
+    seen = {}
+
+    def handler(request):
+        seen["json"] = json.loads(request.content)
+        return sse("Hel", "lo.")
+
+    client = make_client(handler)
+    assert list(client.chat_stream("S", [])) == ["Hel", "lo."]
+    assert seen["json"]["stream"] is True
+
+
+def test_chat_stream_rejection_raises_streaming_not_supported():
+    client = make_client(lambda r: httpx.Response(400, text="streaming not allowed"))
+    with pytest.raises(StreamingNotSupported):
+        list(client.chat_stream("S", []))
+
+
+def test_chat_stream_retries_before_first_token():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ConnectError("refused")
+        return sse("Hi.")
+
+    client = make_client(handler)
+    assert list(client.chat_stream("S", [])) == ["Hi."]
+    assert calls["n"] == 2
+
+
+def test_chat_stream_dead_server_raises_friendly_error():
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    client = make_client(handler)
+    with pytest.raises(LlmError, match="localhost:1337"):
+        list(client.chat_stream("S", []))
+
+
+def test_ollama_chat_stream_yields_content():
+    body = (b'{"message":{"role":"assistant","content":"Hel"},"done":false}\n'
+            b'{"message":{"role":"assistant","content":"lo."},"done":true}\n')
+    client = OllamaClient(
+        "http://localhost:11434", "m",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, content=body)))
+    assert list(client.chat_stream("S", [])) == ["Hel", "lo."]
 
 
 def test_factory_passes_timeout_and_retries():

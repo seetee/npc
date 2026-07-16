@@ -25,6 +25,7 @@ from .events import (
     LogbookWritten,
     MicrophoneError,
     NpcReplied,
+    NpcReplyChunk,
     PlayerSpoke,
     RecordingDiscarded,
     RecordingStarted,
@@ -35,9 +36,11 @@ from .events import (
     VoiceUnavailable,
     print_event,
 )
+from .llm import StreamingNotSupported
 from .session.history import ConversationHistory
 from .session.logbook import Logbook, Transcript
-from .session.prompt import build_system_prompt, extract_dialogue
+from .session.prompt import build_system_prompt, extract_dialogue, strip_decoration
+from .session.sentences import iter_sentences
 from .stt import looks_like_hallucination
 
 HELP = """\
@@ -299,20 +302,64 @@ class NPCApp:
             self.logbook.tail(self.config.logbook_sessions_in_prompt),
             self.ooc_notes,
         )
-        reply = extract_dialogue(self.llm.chat(system, self.history.as_messages()),
-                                 self.npc_name)
-        self.history.add_npc(reply)
-        self.transcript.append_turn("NPC", reply)
-        self._emit(NpcReplied(self.npc_name, reply))
-        self._player_turns += 1
+        messages = self.history.as_messages()
 
-        if self.speaker is not None and self._set_state_if({State.PROCESSING}, State.SPEAKING):
-            self.speaker.say(reply)
+        reply = self._stream_reply(system, messages) if self._can_stream() else None
+        if reply is None:  # streaming off, unsupported, or rejected by the server
+            reply = extract_dialogue(self.llm.chat(system, messages), self.npc_name)
+            self._record_npc_reply(reply)
+            if self.speaker is not None and self._set_state_if({State.PROCESSING},
+                                                               State.SPEAKING):
+                self.speaker.say(reply)
+        elif reply:  # streaming already spoke; "" = barged in before any audio
+            self._record_npc_reply(reply)
+        self._player_turns += 1
 
         if (self.config.checkpoint_every_turns > 0
                 and self._player_turns % self.config.checkpoint_every_turns == 0):
             self._write_logbook_entry()
             self._emit(LogbookWritten(str(self.logbook.path), "checkpoint"))
+
+    def _can_stream(self) -> bool:
+        return (self.config.llm.stream
+                and self.speaker is not None
+                and hasattr(self.llm, "chat_stream")
+                and hasattr(self.speaker, "say_stream"))
+
+    def _stream_reply(self, system: str, messages: list[dict[str, str]]) -> str | None:
+        """Speak sentence-by-sentence while the LLM generates. Returns the
+        text to record — the whole reply, or only what was heard if barged
+        in — or None when the server rejects streaming (caller falls back).
+        SPEAKING covers the entire stream, so barge-in also cancels a reply
+        whose audio hasn't started yet."""
+        raw: list[str] = []
+
+        def cleaned_sentences():
+            def chunks():
+                for chunk in self.llm.chat_stream(system, messages):
+                    raw.append(chunk)
+                    self._emit(NpcReplyChunk(chunk))
+                    yield chunk
+
+            for sentence in iter_sentences(chunks()):
+                cleaned = strip_decoration(sentence, self.npc_name)
+                if cleaned:  # a pure stage direction is never spoken
+                    yield cleaned
+
+        self._set_state_if({State.PROCESSING}, State.SPEAKING)
+        try:
+            spoken, cancelled = self.speaker.say_stream(cleaned_sentences())
+        except StreamingNotSupported:
+            self._set_state_if({State.SPEAKING}, State.PROCESSING)
+            return None
+        if cancelled:
+            return " ".join(spoken)
+        return extract_dialogue("".join(raw), self.npc_name)
+
+    def _record_npc_reply(self, reply: str) -> None:
+        self.history.add_npc(reply)
+        self.transcript.append_turn("NPC", reply)
+        self._emit(NpcReplied(self.npc_name, reply))
 
     def _write_logbook_entry(self) -> None:
         body = self.llm.summarize_session(

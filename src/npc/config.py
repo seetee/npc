@@ -16,6 +16,7 @@ class LlmConfig:
     host: str = "http://localhost:11434"
     timeout_seconds: float = 60.0  # per-request cap; a hung server becomes an error, not a stuck session
     retries: int = 1  # extra attempts after connection-level failures (never after HTTP errors)
+    stream: bool = True  # speak sentence-by-sentence while the reply generates
 
 
 @dataclass

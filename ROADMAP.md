@@ -1,13 +1,15 @@
 # Roadmap
 
-## v1.x — next up
+## v1.x — shipped
 
-- **Streaming replies**: sentence-by-sentence LLM → TTS → playback, cutting
-  time-to-first-sound roughly in half.
-- **Whisper hallucination guard**: energy gate on near-silent clips plus a
-  filter for whisper's known phantom phrases.
-- **LLM timeouts + retry**: a hung or hiccuping LLM server degrades into a
+- **LLM timeouts + retry** ✓ — a hung or hiccuping LLM server degrades into a
   friendly error, never a stuck session.
+- **Whisper hallucination guard** ✓ — energy gate on near-silent clips, a
+  no-speech segment filter, and a blocklist for whisper's known phantom
+  phrases (English and Swedish).
+- **Streaming replies** ✓ — sentence-by-sentence LLM → TTS → playback;
+  time-to-first-sound measured 3.4× faster (1.5 s → 0.4 s on an RTX 3060
+  with qwen2.5:7b).
 
 ## v2.0
 

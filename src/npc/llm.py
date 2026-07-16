@@ -38,8 +38,13 @@ class LlmError(Exception):
     """An LLM failure with a friendly, actionable message for the GM."""
 
 
+class StreamingNotSupported(Exception):
+    """The server rejected the streaming request; retry without streaming."""
+
+
 class _ChatClient:
-    """Shared behavior; subclasses implement _chat() and the doctor helpers."""
+    """Shared behavior; subclasses implement _chat()/_chat_stream() and the
+    doctor helpers."""
 
     model: str
     host: str = ""
@@ -50,7 +55,31 @@ class _ChatClient:
     def chat(self, system: str, messages: list[dict[str, str]]) -> str:
         return self._with_retry(lambda: self._chat(system, messages))
 
+    def chat_stream(self, system: str, messages: list[dict[str, str]]):
+        """Yield reply chunks as the model generates them. Connection-level
+        failures are retried only before the first chunk arrives — once audio
+        may be playing there is nothing safe to retry. A server that rejects
+        streaming raises StreamingNotSupported (callers fall back to chat())."""
+        import httpx
+
+        last: Exception | None = None
+        for _ in range(self.retries + 1):
+            started = False
+            try:
+                for chunk in self._chat_stream(system, messages):
+                    started = True
+                    yield chunk
+                return
+            except (httpx.TransportError, ConnectionError) as e:
+                if started:
+                    raise LlmError("the LLM connection dropped mid-reply — try again") from e
+                last = e
+        raise self._connection_error(last) from last
+
     def _chat(self, system: str, messages: list[dict[str, str]]) -> str:
+        raise NotImplementedError
+
+    def _chat_stream(self, system: str, messages: list[dict[str, str]]):
         raise NotImplementedError
 
     def _with_retry(self, call):
@@ -64,13 +93,18 @@ class _ChatClient:
                 return call()
             except (httpx.TransportError, ConnectionError) as e:
                 last = e
-        if isinstance(last, httpx.TimeoutException):
-            raise LlmError(
+        raise self._connection_error(last) from last
+
+    def _connection_error(self, cause: Exception | None) -> LlmError:
+        import httpx
+
+        if isinstance(cause, httpx.TimeoutException):
+            return LlmError(
                 f"the LLM gave no answer within {self.timeout_seconds:g}s — a large "
                 f"model may still be loading; try again, or raise timeout_seconds "
-                f"under [llm] in config.toml") from last
-        raise LlmError(
-            f"cannot reach the LLM server at {self.host} — {self._server_hint}") from last
+                f"under [llm] in config.toml")
+        return LlmError(
+            f"cannot reach the LLM server at {self.host} — {self._server_hint}")
 
     def summarize_session(self, transcript: str, logbook_tail: str) -> str:
         prompt = ""
@@ -117,11 +151,30 @@ class OllamaClient(_ChatClient):
                 messages=[{"role": "system", "content": system}, *messages],
             )
         except ollama.ResponseError as e:
-            message = f"Ollama error: {e.error}"
-            if e.status_code == 404:
-                message += f" — pull the model with `ollama pull {self.model}`"
-            raise LlmError(message) from e
+            raise self._response_error(e) from e
         return response["message"]["content"].strip()
+
+    def _chat_stream(self, system: str, messages: list[dict[str, str]]):
+        import ollama
+
+        try:
+            parts = self._client.chat(
+                model=self.model,
+                messages=[{"role": "system", "content": system}, *messages],
+                stream=True,
+            )
+            for part in parts:
+                content = part["message"]["content"]
+                if content:
+                    yield content
+        except ollama.ResponseError as e:
+            raise self._response_error(e) from e
+
+    def _response_error(self, e) -> LlmError:
+        message = f"Ollama error: {e.error}"
+        if e.status_code == 404:
+            message += f" — pull the model with `ollama pull {self.model}`"
+        return LlmError(message)
 
     def available_models(self) -> list[str]:
         return [m.model for m in self._client.list().models]
@@ -166,6 +219,31 @@ class OpenAICompatClient(_ChatClient):
             raise LlmError(f"LLM server returned {e.response.status_code} "
                            f"for model {self.model!r}: {body}") from e
         return response.json()["choices"][0]["message"]["content"].strip()
+
+    def _chat_stream(self, system: str, messages: list[dict[str, str]]):
+        import json
+
+        with self._http.stream("POST", "/chat/completions", json={
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, *messages],
+            "stream": True,
+        }) as response:
+            if response.status_code >= 400:
+                response.read()
+                raise StreamingNotSupported(
+                    f"{response.status_code}: {response.text.strip()[:200]}")
+            for line in response.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[len("data:"):].strip()
+                if data == "[DONE]":
+                    return
+                choices = json.loads(data).get("choices") or []
+                if not choices:
+                    continue  # e.g. the final usage-only chunk
+                content = choices[0].get("delta", {}).get("content")
+                if content:
+                    yield content
 
     def available_models(self) -> list[str]:
         response = self._http.get("/models")

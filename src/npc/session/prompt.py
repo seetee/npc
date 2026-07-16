@@ -66,7 +66,17 @@ def extract_dialogue(reply: str, npc_name: str = "") -> str:
     survives (the model only narrated an action), fall back to the
     de-markdowned original rather than leave the table in silence.
     """
-    text = _STAGE_DIRECTION.sub(" ", reply.strip()).replace("*", "")
+    text = strip_decoration(reply, npc_name)
+    if not text:
+        text = " ".join(reply.replace("*", " ").split())
+    return text
+
+
+def strip_decoration(text: str, npc_name: str = "") -> str:
+    """The deterministic core of extract_dialogue, without the fallback: may
+    return "" when nothing speakable remains. The streaming path runs this on
+    each sentence (skipping empty results) before it reaches the TTS queue."""
+    text = _STAGE_DIRECTION.sub(" ", text.strip()).replace("*", "")
     text = " ".join(text.split())
     names = "|".join(re.escape(n) for n in (npc_name, "NPC") if n)
     text = re.sub(rf"^(?:{names})\s*:\s*", "", text, flags=re.IGNORECASE)
@@ -80,6 +90,4 @@ def extract_dialogue(reply: str, npc_name: str = "") -> str:
         if (len(text) > 1 and text.startswith(open_q) and text.endswith(close_q)
                 and open_q not in inner and close_q not in inner):
             text = inner.strip()
-    if not text:
-        text = " ".join(reply.replace("*", " ").split())
     return text

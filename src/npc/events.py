@@ -59,6 +59,13 @@ class NpcReplied(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class NpcReplyChunk(Event):
+    """A fragment of the reply as it streams from the LLM. Overlay material —
+    the CLI waits for the complete NpcReplied instead."""
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class GmNoteAdded(Event):
     text: str
 
@@ -131,6 +138,8 @@ def format_event(event: Event) -> str | None:
             return f"[player] {text}"
         case NpcReplied(npc_name=name, text=text):
             return f"[{name}] {text}"
+        case NpcReplyChunk():
+            return None  # the CLI prints the finished NpcReplied line
         case GmNoteAdded():
             return "[noted — will shape the NPC's behavior]"
         case Busy():

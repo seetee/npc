@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import queue
+import threading
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Protocol
 
@@ -26,6 +29,7 @@ class PiperSpeaker:
 
         self._voice = PiperVoice.load(str(voice_path))
         self._player = player or AudioPlayer()
+        self._cancel = threading.Event()
 
     def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         chunks = []
@@ -45,5 +49,49 @@ class PiperSpeaker:
         if len(samples):
             self._player.play(samples, sample_rate)
 
+    def say_stream(self, sentences: Iterable[str]) -> tuple[list[str], bool]:
+        """Synthesize and play sentence-by-sentence: synthesis (the caller's
+        thread) runs up to 3 sentences ahead of playback (internal thread),
+        so the next line is ready the instant the current one ends.
+
+        Blocks until everything has played or stop() cancels. Returns
+        (sentences that started playing, whether it was cancelled) — after a
+        barge-in the caller records only what the table actually heard."""
+        self._cancel.clear()
+        pending: queue.Queue = queue.Queue(maxsize=3)
+        spoken: list[str] = []
+
+        def playback():
+            while True:
+                item = pending.get()
+                if item is None:
+                    return
+                text, samples, sample_rate = item
+                if self._cancel.is_set():
+                    continue  # keep draining so the producer never blocks
+                spoken.append(text)
+                self._player.play(samples, sample_rate)
+
+        player_thread = threading.Thread(target=playback, daemon=True, name="tts-stream")
+        player_thread.start()
+        try:
+            for text in sentences:
+                if self._cancel.is_set():
+                    break
+                samples, sample_rate = self.synthesize(text)
+                if not len(samples):
+                    continue
+                while not self._cancel.is_set():
+                    try:
+                        pending.put((text, samples, sample_rate), timeout=0.1)
+                        break
+                    except queue.Full:
+                        pass
+        finally:
+            pending.put(None)
+            player_thread.join()
+        return spoken, self._cancel.is_set()
+
     def stop(self) -> None:
+        self._cancel.set()
         self._player.stop()
