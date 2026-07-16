@@ -7,19 +7,23 @@ from .config import ConfigError
 
 SUMMARIZER_SYSTEM = """\
 You are the archivist for a tabletop RPG campaign. You will be given the raw
-transcript of the current session (PLAYER lines, GM notes, NPC replies) and
-the tail of the existing campaign logbook.
+transcript of the CURRENT session (PLAYER lines, GM notes, NPC replies), and
+possibly the previous logbook entries as background.
 
-Write a concise session summary in markdown with exactly these bold labels:
+Write a concise summary of the CURRENT session in markdown with exactly these
+bold labels:
 
 **Location:** where the players are now / where the scene takes place.
 **NPC state:** the NPC's current attitude toward the players and anything the
-NPC learned, revealed, or promised.
-**Highlights:** 2-6 bullet points of what actually happened.
-**Open threads:** unresolved hooks, promises, or dangers.
+NPC learned, revealed, or promised THIS session.
+**Highlights:** 2-6 bullet points of what actually happened THIS session.
+**Open threads:** unresolved hooks, promises, or dangers from THIS session.
 
-Be factual — only include things that happened in the transcript. Reply with
-ONLY the summary body, no heading, no preamble.
+HARD RULE: the previous entries are background ONLY, so you understand
+references — never copy, repeat, or re-summarize anything from them. Every
+statement in your summary must be grounded in the CURRENT session transcript.
+A short session gets a short summary; never pad it with old material. Reply
+with ONLY the summary body, no heading, no preamble.
 """
 
 # every alias points at the same OpenAI-compatible client
@@ -109,8 +113,10 @@ class _ChatClient:
     def summarize_session(self, transcript: str, logbook_tail: str) -> str:
         prompt = ""
         if logbook_tail.strip():
-            prompt += f"Existing logbook tail:\n\n{logbook_tail.strip()}\n\n---\n\n"
-        prompt += f"Session transcript:\n\n{transcript.strip()}"
+            prompt += ("Previous logbook entries (background ONLY — do not "
+                       f"repeat these):\n\n{logbook_tail.strip()}\n\n---\n\n")
+        prompt += ("CURRENT session transcript (summarize ONLY this):\n\n"
+                   f"{transcript.strip()}")
         return self.chat(SUMMARIZER_SYSTEM, [{"role": "user", "content": prompt}])
 
     def is_up(self) -> bool:
