@@ -41,6 +41,21 @@ def test_unknown_key_is_a_friendly_error(tmp_path):
         load_config(tmp_path)
 
 
+def test_tts_voices_mapping_parsed(tmp_path):
+    (tmp_path / "config.toml").write_text(
+        '[tts.voices]\nkorval = "en_GB-northern_english_male-medium"\n')
+    config = load_config(tmp_path)
+    assert config.tts.voices == {"korval": "en_GB-northern_english_male-medium"}
+    assert config.tts.voice_path_for("x").name == "x.onnx"
+    assert config.tts.voice == "en_GB-alba-medium"    # default untouched
+
+
+def test_tts_voices_rejects_non_string_values(tmp_path):
+    (tmp_path / "config.toml").write_text("[tts.voices]\nkorval = 3\n")
+    with pytest.raises(ConfigError, match="tts.voices"):
+        load_config(tmp_path)
+
+
 def test_env_var_overrides_config_api_key(tmp_path, monkeypatch):
     (tmp_path / "config.toml").write_text('[llm]\napi_key = "from-file"\n')
     assert load_config(tmp_path).llm.api_key == "from-file"

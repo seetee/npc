@@ -35,10 +35,14 @@ class SttConfig:
 class TtsConfig:
     voice: str = "en_GB-alba-medium"
     voices_dir: str = str(DEFAULT_VOICES_DIR)
+    voices: dict[str, str] = field(default_factory=dict)  # [tts.voices]: character stem → voice
 
     @property
     def voice_path(self) -> Path:
         return Path(self.voices_dir).expanduser() / f"{self.voice}.onnx"
+
+    def voice_path_for(self, voice: str) -> Path:
+        return Path(self.voices_dir).expanduser() / f"{voice}.onnx"
 
 
 @dataclass
@@ -84,6 +88,14 @@ class Config:
     def sessions_dir(self) -> Path:
         return self.campaign_dir / "sessions"
 
+    @property
+    def characters_dir(self) -> Path:
+        return self.campaign_dir / "characters"
+
+    @property
+    def logbooks_dir(self) -> Path:
+        return self.campaign_dir / "logbooks"
+
 
 class ConfigError(Exception):
     pass
@@ -125,6 +137,10 @@ def load_config(campaign_dir: Path) -> Config:
     if config.hotkey.mode not in ("hold", "tap"):
         raise ConfigError(f'{toml_path}: hotkey.mode must be "hold" or "tap", '
                           f"got {config.hotkey.mode!r}")
+    for key, value in config.tts.voices.items():
+        if not isinstance(value, str):
+            raise ConfigError(f"{toml_path}: [tts.voices] entries must be "
+                              f'strings ({key} = "voice-name"), got {value!r}')
     if os.environ.get("NPC_LLM_API_KEY"):
         config.llm.api_key = os.environ["NPC_LLM_API_KEY"]
     return config
