@@ -341,6 +341,22 @@ def test_streaming_speaks_sentences_and_records_full_reply(stream_app):
     assert stream_app.state is State.IDLE
 
 
+def test_streaming_narration_mix_speaks_only_quoted_dialogue(config):
+    chunks = ('"You test my patience," I say, ',
+              'my voice cold as the void. "Leave the shard."')
+    events = []
+    app = NPCApp(config, llm=StreamingFakeLLM(chunks), speaker=StreamingFakeSpeaker(),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say give it to me")
+    drain(app)
+    app._queue.put(None)
+
+    assert app.speaker.spoken == ["You test my patience.", "Leave the shard."]
+    assert of_type(app, NpcReplied)[-1].text == "You test my patience. Leave the shard."
+
+
 def test_barge_in_mid_stream_records_only_what_was_heard(config):
     events = []
     app = NPCApp(config, llm=StreamingFakeLLM(),

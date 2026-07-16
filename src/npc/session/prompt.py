@@ -15,6 +15,10 @@ Rules:
   quotation marks, no out-of-character commentary. Never describe yourself,
   your tone, or the scene; whatever you cannot say out loud, you cannot
   communicate at all.
+- NEVER narrate what you do, look like, or feel, and never wrap your speech
+  in quotation marks or add attribution like "I say" or "she says".
+  WRONG: I raise an eyebrow, my expression stern. "Approach with respect."
+  RIGHT: Approach with respect, young traveler.
 - You are not an assistant. Never offer the player options, help, or
   suggestions; never ask what they would like you to do; never comment on the
   conversation or the game itself. Speak only in response to what was just
@@ -55,6 +59,45 @@ _STAGE_DIRECTION = re.compile(r"\*[^*\n]+\*")      # *adjusts her hood*
 _PARENTHETICAL = re.compile(r"\([^()\n]*\)")       # (chuckles)
 _BRACKETED = re.compile(r"\[[^\[\]\n]*\]")         # [sighs]
 _QUOTE_PAIRS = (('"', '"'), ("“", "”"), ("'", "'"))
+_DQUOTE_SPAN = re.compile(r'["“]([^"“”\n]+)["”]')  # balanced double-quoted span
+_DIALOGUE_END = ".!?,…"
+
+
+def _extract_quoted_dialogue(text: str) -> str | None:
+    """When the model mixes narration with speech, the speech sits in double
+    quotes and ends with punctuation ("What is this?"), while quoted titles
+    don't ("The Broken Crown"). If any dialogue-shaped span exists, the quoted
+    spans ARE the reply — narration and attribution around them are dropped.
+    Returns None when nothing dialogue-shaped is quoted (leave text alone).
+
+    Known tradeoff: the NPC quoting someone else ('She said, "Bring the
+    crown."') loses the framing words — mild, versus reading narration aloud.
+    """
+    spans = [s.strip() for s in _DQUOTE_SPAN.findall(text)]
+    dialogue = [s for s in spans if s and s[-1] in _DIALOGUE_END]
+    if not dialogue:
+        return None
+    parts = []
+    for i, span in enumerate(dialogue):
+        if span[-1] == ",":  # attribution split: '"…far," I say. "What is this?"'
+            nxt = dialogue[i + 1] if i + 1 < len(dialogue) else ""
+            if not nxt or nxt[:1].isupper():
+                span = span[:-1] + "."
+        parts.append(span)
+    return " ".join(parts)
+
+
+def _strip_unpaired_quote(text: str) -> str:
+    """A sentence that is a fragment of a longer quote (split apart by the
+    streaming sentence regrouper) carries one unpaired quote char at an edge;
+    strip just that char. A lone mid-sentence quote is left untouched."""
+    if not text or sum(text.count(c) for c in '"“”') != 1:
+        return text
+    if text[0] in '"“':
+        return text[1:].lstrip()
+    if text[-1] in '"”' and len(text) > 1 and text[-2] in ".!?…":
+        return text[:-1].rstrip()
+    return text
 
 
 def extract_dialogue(reply: str, npc_name: str = "") -> str:
@@ -85,6 +128,10 @@ def strip_decoration(text: str, npc_name: str = "") -> str:
     text = " ".join(text.split())
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)   # "hid it ." → "hid it."
     text = re.sub(r"^[,;:\s]+", "", text)
+    dialogue = _extract_quoted_dialogue(text)
+    if dialogue is not None:
+        return dialogue
+    text = _strip_unpaired_quote(text)
     for open_q, close_q in _QUOTE_PAIRS:
         inner = text[1:-1]
         if (len(text) > 1 and text.startswith(open_q) and text.endswith(close_q)

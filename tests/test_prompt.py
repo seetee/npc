@@ -43,12 +43,39 @@ def test_prompt_demands_voice_only_non_assistant_behavior():
     ("NPC: I know nothing of it.", "I know nothing of it."),
     ("Vess: The monolith hums at night.", "The monolith hums at night."),
     ("**Vess:** Ask the abbot.", "Ask the abbot."),
-    # quotes inside the line are the character quoting something — keep them
+    # quoted TITLES (no terminal punctuation inside) are kept in place
     ('Well, "The Broken Crown" is what we call it.',
      'Well, "The Broken Crown" is what we call it.'),
+    # real qwen2.5:7b failures captured 2026-07-16 — narration around quoted speech
+    ('I raise an eyebrow, my expression stern. "A weary guardian of ancient secrets, '
+     'young traveler. Approach with respect, or leave now."',
+     "A weary guardian of ancient secrets, young traveler. "
+     "Approach with respect, or leave now."),
+    ("A glance falls upon the device you bring forth. It hums softly, like a whisper "
+     'from another time. "You\'ve ventured far," I say, my voice a mix of caution and '
+     'curiosity. "What is this?"',
+     "You've ventured far. What is this?"),
+    # attribution with lowercase continuation keeps the comma (one split sentence)
+    ('"Not tonight," she whispered, "not while the moon watches."',
+     "Not tonight, not while the moon watches."),
+    # streaming fragments: a multi-sentence quote split apart by iter_sentences
+    ('"A weary guardian of ancient secrets, young traveler.',
+     "A weary guardian of ancient secrets, young traveler."),
+    ('Approach with respect, or leave now."', "Approach with respect, or leave now."),
 ])
 def test_extract_dialogue_keeps_only_the_spoken_words(raw, spoken):
     assert extract_dialogue(raw, "Vess") == spoken
+
+
+def test_quoting_someone_else_loses_framing_words_known_tradeoff():
+    # documented false positive: better than reading "my expression stern" aloud
+    assert extract_dialogue('She said, "Bring the crown."', "Vess") == "Bring the crown."
+
+
+def test_prompt_bans_first_person_narration_with_example():
+    prompt = build_system_prompt("X", "", "", [])
+    assert "NEVER narrate" in prompt
+    assert "WRONG:" in prompt and "RIGHT:" in prompt
 
 
 def test_pure_stage_direction_falls_back_to_plain_text():
