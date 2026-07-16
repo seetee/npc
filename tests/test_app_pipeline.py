@@ -15,6 +15,8 @@ from npc.events import (
     PlayerSpoke,
     RecordingDiscarded,
     StateChanged,
+    StatusReport,
+    TurnCompleted,
 )
 from npc.llm import StreamingNotSupported
 
@@ -314,6 +316,36 @@ def test_broken_event_subscriber_does_not_kill_the_session(config):
     assert len(app.llm.calls) == 1                 # turn still completed
 
 
+# ---------- latency instrumentation ----------
+
+def test_voice_turn_emits_timings(app):
+    app.on_ptt_press()
+    app.on_ptt_release()
+    drain(app)
+    turns = of_type(app, TurnCompleted)
+    assert len(turns) == 1
+    t = turns[0]
+    assert t.stt_seconds is not None and t.stt_seconds >= 0
+    assert t.llm_first_token_seconds is None       # non-streaming fakes
+    assert t.speak_seconds is not None
+    assert t.total_seconds >= t.llm_seconds >= 0
+
+
+def test_say_turn_has_no_stt_timing(app):
+    app.handle_line("/say hello")
+    drain(app)
+    assert of_type(app, TurnCompleted)[0].stt_seconds is None
+
+
+def test_status_reports_last_and_average_turn(app):
+    app.handle_line("/say one")
+    drain(app)
+    app.handle_line("/status")
+    status = of_type(app, StatusReport)[-1]
+    assert status.last_turn_seconds is not None
+    assert status.avg_turn_seconds is not None
+
+
 # ---------- streaming replies ----------
 
 STREAM_CHUNKS = ("*bows* Greetings, tra", "veler. What brings", " you to the docks?")
@@ -373,6 +405,15 @@ def test_streaming_speaks_sentences_and_records_full_reply(stream_app):
     assert ("**NPC:** Greetings, traveler. What brings you to the docks?"
             in stream_app.transcript.read())
     assert stream_app.state is State.IDLE
+
+
+def test_streaming_turn_records_first_token_timing(stream_app):
+    stream_app.handle_line("/say hello")
+    drain(stream_app)
+    t = of_type(stream_app, TurnCompleted)[0]
+    assert t.llm_first_token_seconds is not None
+    assert t.llm_first_token_seconds <= t.llm_seconds
+    assert t.speak_seconds is not None
 
 
 def test_streaming_narration_mix_speaks_only_quoted_dialogue(config):

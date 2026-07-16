@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
+from collections import deque
 from collections.abc import Callable
 from datetime import date
 
@@ -33,6 +35,7 @@ from .events import (
     State,
     StateChanged,
     StatusReport,
+    TurnCompleted,
     VoiceUnavailable,
     print_event,
 )
@@ -76,6 +79,8 @@ class NPCApp:
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._player_turns = 0
+        self._last_turn: TurnCompleted | None = None
+        self._turn_totals: deque[float] = deque(maxlen=20)
 
         self.character = ""
         self.adventure = ""
@@ -254,10 +259,14 @@ class NPCApp:
                 except Exception as e:
                     self._emit(ErrorOccurred(f"config.toml not reloaded: {e}"))
             case "/status":
+                totals = self._turn_totals
                 self._emit(StatusReport(
                     state=self.state, npc_name=self.npc_name,
                     model=self.llm.model, session_no=self.session_no,
                     player_turns=self._player_turns, gm_notes=len(self.ooc_notes),
+                    last_turn_seconds=(self._last_turn.total_seconds
+                                       if self._last_turn else None),
+                    avg_turn_seconds=sum(totals) / len(totals) if totals else None,
                 ))
             case "/help":
                 self._emit(Info(HELP))
@@ -298,7 +307,9 @@ class NPCApp:
         if clip.dbfs() < self.config.stt.silence_threshold_db:
             self._emit(RecordingDiscarded("silence"))
             return
+        t0 = time.perf_counter()
         text = self.transcriber.transcribe(clip)
+        stt_seconds = time.perf_counter() - t0
         if not text:
             self._emit(HeardNothing())
             return
@@ -306,9 +317,10 @@ class NPCApp:
             self._emit(RecordingDiscarded(f"whisper hallucination {text!r}"))
             return
         self._emit(PlayerSpoke(text))
-        self._respond_to_player(text)
+        self._respond_to_player(text, stt_seconds=stt_seconds)
 
-    def _respond_to_player(self, text: str) -> None:
+    def _respond_to_player(self, text: str, stt_seconds: float | None = None) -> None:
+        turn_start = time.perf_counter()
         self._set_state_if({State.IDLE}, State.PROCESSING)
         self.history.add_player(text)
         self.transcript.append_turn("PLAYER", text)
@@ -320,16 +332,34 @@ class NPCApp:
         )
         messages = self.history.as_messages()
 
-        reply = self._stream_reply(system, messages) if self._can_stream() else None
+        timings: dict[str, float] = {}
+        reply = (self._stream_reply(system, messages, timings)
+                 if self._can_stream() else None)
         if reply is None:  # streaming off, unsupported, or rejected by the server
+            timings.clear()
+            t = time.perf_counter()
             reply = extract_dialogue(self.llm.chat(system, messages), self.npc_name)
+            timings["llm"] = time.perf_counter() - t
             self._record_npc_reply(reply)
             if self.speaker is not None and self._set_state_if({State.PROCESSING},
                                                                State.SPEAKING):
+                t = time.perf_counter()
                 self.speaker.say(reply)
+                timings["speak"] = time.perf_counter() - t
         elif reply:  # streaming already spoke; "" = barged in before any audio
             self._record_npc_reply(reply)
         self._player_turns += 1
+
+        turn = TurnCompleted(
+            stt_seconds=stt_seconds,
+            llm_first_token_seconds=timings.get("first_token"),
+            llm_seconds=timings.get("llm", 0.0),
+            speak_seconds=timings.get("speak"),
+            total_seconds=time.perf_counter() - turn_start + (stt_seconds or 0.0),
+        )
+        self._last_turn = turn
+        self._turn_totals.append(turn.total_seconds)
+        self._emit(turn)
 
         if (self.config.checkpoint_every_turns > 0
                 and self._player_turns % self.config.checkpoint_every_turns == 0):
@@ -342,7 +372,8 @@ class NPCApp:
                 and hasattr(self.llm, "chat_stream")
                 and hasattr(self.speaker, "say_stream"))
 
-    def _stream_reply(self, system: str, messages: list[dict[str, str]]) -> str | None:
+    def _stream_reply(self, system: str, messages: list[dict[str, str]],
+                      timings: dict[str, float]) -> str | None:
         """Speak sentence-by-sentence while the LLM generates. Returns the
         text to record — the whole reply, or only what was heard if barged
         in — or None when the server rejects streaming (caller falls back).
@@ -352,9 +383,12 @@ class NPCApp:
 
         def cleaned_sentences():
             def chunks():
+                t0 = time.perf_counter()
                 for chunk in self.llm.chat_stream(system, messages):
+                    timings.setdefault("first_token", time.perf_counter() - t0)
                     raw.append(chunk)
                     self._emit(NpcReplyChunk(chunk))
+                    timings["llm"] = time.perf_counter() - t0
                     yield chunk
 
             for sentence in iter_sentences(chunks()):
@@ -363,11 +397,13 @@ class NPCApp:
                     yield cleaned
 
         self._set_state_if({State.PROCESSING}, State.SPEAKING)
+        t_speak = time.perf_counter()
         try:
             spoken, cancelled = self.speaker.say_stream(cleaned_sentences())
         except StreamingNotSupported:
             self._set_state_if({State.SPEAKING}, State.PROCESSING)
             return None
+        timings["speak"] = time.perf_counter() - t_speak
         if cancelled:
             return " ".join(spoken)
         return extract_dialogue("".join(raw), self.npc_name)

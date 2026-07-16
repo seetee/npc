@@ -91,6 +91,19 @@ class ErrorOccurred(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class TurnCompleted(Event):
+    """Per-stage timings for one player turn, measured from the clip landing
+    in the worker (or the /say line) until the reply finished. On the
+    streaming path the LLM and TTS stages overlap, so stages don't sum to
+    total. Hidden in the CLI by default — `npc run --timings` prints them."""
+    stt_seconds: float | None            # None for typed /say turns
+    llm_first_token_seconds: float | None  # None on the non-streaming path
+    llm_seconds: float
+    speak_seconds: float | None          # None when spoken replies are disabled
+    total_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class SessionEnding(Event):
     pass
 
@@ -115,6 +128,8 @@ class StatusReport(Event):
     session_no: int
     player_turns: int
     gm_notes: int
+    last_turn_seconds: float | None = None
+    avg_turn_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +143,8 @@ def format_event(event: Event) -> str | None:
     match event:
         case StateChanged():
             return None  # overlay material — too chatty for the terminal
+        case TurnCompleted():
+            return None  # shown only via `npc run --timings` (format_timings)
         case RecordingStarted(auto_stop=auto):
             return "[recording… pause to send]" if auto else "[recording… release to send]"
         case RecordingDiscarded(reason=reason):
@@ -162,13 +179,31 @@ def format_event(event: Event) -> str | None:
                 text += f"\n[changed {', '.join(restart_needed)} — takes effect after restart]"
             return text
         case StatusReport() as s:
+            timing = ""
+            if s.last_turn_seconds is not None:
+                timing = (f" | last turn {s.last_turn_seconds:.1f}s, "
+                          f"avg {s.avg_turn_seconds:.1f}s")
             return (f"[state: {s.state} | NPC: {s.npc_name} | model: {s.model} | "
                     f"session {s.session_no}, {s.player_turns} player turns | "
-                    f"{s.gm_notes} standing GM notes]")
+                    f"{s.gm_notes} standing GM notes{timing}]")
         case Info(message=message):
             return message
         case _:
             return repr(event)
+
+
+def format_timings(event: TurnCompleted) -> str:
+    """Render TurnCompleted for `npc run --timings`."""
+    parts = []
+    if event.stt_seconds is not None:
+        parts.append(f"stt {event.stt_seconds:.1f}s")
+    llm = f"llm {event.llm_seconds:.1f}s"
+    if event.llm_first_token_seconds is not None:
+        llm += f" (first token {event.llm_first_token_seconds:.2f}s)"
+    parts.append(llm)
+    if event.speak_seconds is not None:
+        parts.append(f"speak {event.speak_seconds:.1f}s")
+    return f"[turn {event.total_seconds:.1f}s: {' | '.join(parts)}]"
 
 
 def print_event(event: Event) -> None:

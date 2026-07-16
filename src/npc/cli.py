@@ -93,7 +93,7 @@ def cmd_say(args) -> int:
 def cmd_run(args) -> int:
     from .app import NPCApp
     from .doctor import print_report, run_checks
-    from .events import print_event
+    from .events import TurnCompleted, format_timings, print_event
     from .llm import make_llm_client
 
     config = load_config(Path(args.campaign))
@@ -138,8 +138,13 @@ def cmd_run(args) -> int:
     else:
         print("! spoken replies disabled this session (see FAILs above)")
 
+    def on_event(event):
+        print_event(event)
+        if args.timings and isinstance(event, TurnCompleted):
+            print(format_timings(event))
+
     app = NPCApp(config, llm=llm, transcriber=transcriber, recorder=recorder,
-                 speaker=speaker, on_event=print_event)
+                 speaker=speaker, on_event=on_event)
     app.start()
     print(f"\n{app.npc_name} is listening — session {app.session_no}.")
     verb = "Tap" if config.hotkey.mode == "tap" else "Hold"
@@ -280,7 +285,9 @@ def main(argv=None) -> int:
         return p
 
     add("init", cmd_init, "scaffold a new campaign directory")
-    add("run", cmd_run, "run the NPC for a play session")
+    p = add("run", cmd_run, "run the NPC for a play session")
+    p.add_argument("--timings", action="store_true",
+                   help="print per-stage turn timings after each reply")
     add("doctor", cmd_doctor, "check (and set up) everything the NPC needs")
     p = add("transcribe", cmd_transcribe, "debug: transcribe a wav file")
     p.add_argument("file", help="16-bit PCM wav file")
