@@ -26,6 +26,7 @@ class FakeLLM:
 
     def __init__(self):
         self.calls = []
+        self.summarize_calls = []
         self.reply = "Greetings, traveler."
         self.replies = []  # optional queue; falls back to .reply when empty
 
@@ -34,6 +35,7 @@ class FakeLLM:
         return self.replies.pop(0) if self.replies else self.reply
 
     def summarize_session(self, transcript, logbook_tail):
+        self.summarize_calls.append((transcript, logbook_tail))
         return f"**Location:** the docks\n(summary of {len(transcript)} chars)"
 
 
@@ -107,7 +109,7 @@ def test_voice_turn_end_to_end(app):
     # transcript written to disk
     content = app.transcript.read()
     assert "**PLAYER:** who are you?" in content
-    assert "**NPC:** Greetings, traveler." in content
+    assert "**Vess of the Amber Monolith:** Greetings, traveler." in content
     assert app.state is State.IDLE
 
 
@@ -167,7 +169,7 @@ def test_llm_decoration_is_stripped_before_speaking(app):
     drain(app)
     assert app.speaker.spoken == ["Greetings, traveler."]
     assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
-    assert "**NPC:** Greetings, traveler." in app.transcript.read()
+    assert "**Vess of the Amber Monolith:** Greetings, traveler." in app.transcript.read()
 
 
 def test_too_short_clip_discarded(app):
@@ -465,7 +467,7 @@ def test_streaming_speaks_sentences_and_records_full_reply(stream_app):
         "Greetings, traveler. What brings you to the docks?",
     )]
     assert stream_app.llm.calls == []              # non-streaming chat() never used
-    assert ("**NPC:** Greetings, traveler. What brings you to the docks?"
+    assert ("**Vess of the Amber Monolith:** Greetings, traveler. What brings you to the docks?"
             in stream_app.transcript.read())
     assert stream_app.state is State.IDLE
 
@@ -507,7 +509,7 @@ def test_barge_in_mid_stream_records_only_what_was_heard(config):
 
     assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
     content = app.transcript.read()
-    assert "**NPC:** Greetings, traveler." in content
+    assert "**Vess of the Amber Monolith:** Greetings, traveler." in content
     assert "docks" not in content
 
 

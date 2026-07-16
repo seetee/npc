@@ -40,8 +40,8 @@ from .events import (
     print_event,
 )
 from .llm import StreamingNotSupported
-from .session.history import ConversationHistory
-from .session.logbook import Logbook, Transcript
+from .roster import CharacterSlot, discover_character_files, load_slot, render_turns
+from .session.logbook import Transcript
 from .session.prompt import (
     build_system_prompt,
     extract_dialogue,
@@ -75,42 +75,77 @@ class NPCApp:
         self.llm = llm
         self.transcriber = transcriber
         self.recorder = recorder
-        self.speaker = speaker
+        self.speaker = speaker  # the ACTIVE speaker (hotkey thread reads it for barge-in)
         self._on_event = on_event or print_event
 
-        self.history = ConversationHistory(limit=config.history_limit)
-        self.logbook = Logbook(config.logbook_file)
         self.transcript = Transcript(config.sessions_dir)
-        self.session_no = self.logbook.next_session_number()
-        self.ooc_notes: list[str] = []
 
         self._queue: queue.Queue = queue.Queue()
         self._state = State.IDLE
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
-        self._player_turns = 0
+        self._player_turns = 0  # campaign-global; drives checkpoint cadence
         self._last_turn: TurnCompleted | None = None
         self._turn_totals: deque[float] = deque(maxlen=20)
 
-        self.character = ""
         self.adventure = ""
-        self.npc_name = "NPC"
-        self._load_files()
+        self.roster: dict[str, CharacterSlot] = {}
+        self.active: CharacterSlot
+        self._load_roster()
+        # the campaign session clock is shared across every NPC's logbook
+        self.session_no = max(slot.logbook.next_session_number()
+                              for slot in self.roster.values())
 
         if self.recorder is not None:
             # only a VAD recorder ever fires this; harmless for push-to-talk
             self.recorder.on_auto_stop = self.on_auto_stop
 
+    # ---------- per-NPC state (delegates to the active CharacterSlot) ----------
+
+    @property
+    def history(self):
+        return self.active.history
+
+    @property
+    def ooc_notes(self) -> list[str]:
+        return self.active.ooc_notes
+
+    @property
+    def character(self) -> str:
+        return self.active.character
+
+    @property
+    def npc_name(self) -> str:
+        return self.active.name
+
+    @property
+    def logbook(self):
+        return self.active.logbook
+
     # ---------- lifecycle ----------
 
-    def _load_files(self) -> None:
-        self.character = self.config.character_file.read_text(encoding="utf-8")
+    def _load_roster(self) -> None:
+        """Discover character files. On /reload, existing slots are refreshed
+        IN PLACE (the worker may hold a slot reference mid-turn) and their
+        conversation state survives; new files gain slots; slots whose files
+        vanished keep their memory until /end."""
+        refs = discover_character_files(self.config.campaign_dir)
+        if not refs:
+            raise FileNotFoundError(
+                f"no character.md or characters/*.md in {self.config.campaign_dir}")
+        for ref in refs:
+            if ref.stem in self.roster:
+                self.roster[ref.stem].refresh(self.config)
+            else:
+                self.roster[ref.stem] = load_slot(ref, self.config)
+        gone = self.roster.keys() - {ref.stem for ref in refs}
+        if gone:
+            self._emit(Info(f"[character files removed: {', '.join(sorted(gone))} "
+                            "— keeping their memory until /end]"))
+        if not hasattr(self, "active"):
+            self.active = next(iter(self.roster.values()))
         if self.config.adventure_file.exists():
             self.adventure = self.config.adventure_file.read_text(encoding="utf-8")
-        for line in self.character.splitlines():
-            if line.startswith("# "):
-                self.npc_name = line[2:].strip()
-                break
 
     def _reload_config(self) -> None:
         """Re-read config.toml mid-session. The LLM model applies immediately
@@ -119,7 +154,8 @@ class NPCApp:
         from .config import load_config
 
         new = load_config(self.config.campaign_dir)
-        applied = [f"character & adventure notes (NPC: {self.npc_name})"]
+        applied = [f"character & adventure notes ({len(self.roster)} NPCs, "
+                   f"active: {self.npc_name})"]
         if new.llm.model != self.llm.model:
             self.llm.model = new.llm.model
             applied.append(f"LLM model → {new.llm.model}")
@@ -137,7 +173,8 @@ class NPCApp:
                 ("[overlay]", new.overlay != self.config.overlay),
             ) if changed
         )
-        self.history.limit = new.history_limit
+        for slot in self.roster.values():
+            slot.history.limit = new.history_limit
         self.config = new
         self._emit(ConfigReloaded(applied=tuple(applied), restart_needed=restart_needed))
 
@@ -158,10 +195,9 @@ class NPCApp:
                     "run /save next session or edit logbook.md by hand"))
                 return
         if summarize:
-            if self._player_turns > 0:
+            if any(slot.player_turns > 0 for slot in self.roster.values()):
                 self._emit(SessionEnding())
-                self._write_logbook_entry()
-                self._emit(LogbookWritten(str(self.logbook.path), "end"))
+                self._write_logbook_entries("end")
             else:
                 self._emit(Info("[nothing happened this session — logbook unchanged]"))
 
@@ -247,10 +283,9 @@ class NPCApp:
             return "ok"
         if line.startswith("/"):
             return self._handle_command(line)
-        self.ooc_notes.append(line)
-        self.history.add_ooc(line)
-        self.transcript.append_turn("GM", line)
-        self._emit(GmNoteAdded(line))
+        # through the worker queue so a note typed right after /npc lands on
+        # the NPC it was meant for, not whoever is active mid-turn
+        self._queue.put(("ooc", line))
         return "ok"
 
     def _handle_command(self, line: str) -> str:
@@ -265,7 +300,7 @@ class NPCApp:
             case "/save":
                 self._queue.put(("save", None))
             case "/reload":
-                self._load_files()
+                self._load_roster()
                 try:
                     self._reload_config()
                 except Exception as e:
@@ -303,10 +338,12 @@ class NPCApp:
                     self._handle_utterance(payload)
                 elif kind == "say":
                     self._respond_to_player(payload)
+                elif kind == "ooc":
+                    self._add_ooc(payload)
                 elif kind == "save":
-                    if self._player_turns > 0:
-                        self._write_logbook_entry()
-                        self._emit(LogbookWritten(str(self.logbook.path), "save"))
+                    if any(s.dirty and s.player_turns > 0
+                           for s in self.roster.values()):
+                        self._write_logbook_entries("save")
                     else:
                         self._emit(Info("[nothing to save yet]"))
             except Exception as e:
@@ -334,15 +371,17 @@ class NPCApp:
     def _respond_to_player(self, text: str, stt_seconds: float | None = None) -> None:
         turn_start = time.perf_counter()
         self._set_state_if({State.IDLE}, State.PROCESSING)
-        self.history.add_player(text)
-        self.transcript.append_turn("PLAYER", text)
+        slot = self.active  # switches also run on this thread — stable for the turn
+        slot.history.add_player(text)
+        slot.turns.append(("PLAYER", text))
+        self.transcript.append_turn(self._player_tag(slot), text)
         system = build_system_prompt(
-            self.character,
+            slot.character,
             self.adventure,
-            self.logbook.tail(self.config.logbook_sessions_in_prompt),
-            self.ooc_notes,
+            slot.logbook.tail(self.config.logbook_sessions_in_prompt),
+            slot.ooc_notes,
         )
-        messages = self.history.as_messages()
+        messages = slot.history.as_messages()
 
         timings: dict[str, float] = {}
         reply = (self._stream_reply(system, messages, timings)
@@ -360,7 +399,7 @@ class NPCApp:
                      "rule. Give that reply again, entirely in English."},
                 ]), self.npc_name)
             timings["llm"] = time.perf_counter() - t
-            self._record_npc_reply(reply)
+            self._record_npc_reply(slot, reply)
             if self.speaker is not None:
                 if looks_foreign(reply):  # retry failed too — never voice this
                     self._emit(Info("[reply still not in English — shown, not spoken]"))
@@ -369,8 +408,10 @@ class NPCApp:
                     self.speaker.say(reply)
                     timings["speak"] = time.perf_counter() - t
         elif reply:  # streaming already spoke; "" = barged in before any audio
-            self._record_npc_reply(reply)
+            self._record_npc_reply(slot, reply)
         self._player_turns += 1
+        slot.player_turns += 1
+        slot.dirty = True
 
         turn = TurnCompleted(
             stt_seconds=stt_seconds,
@@ -385,8 +426,7 @@ class NPCApp:
 
         if (self.config.checkpoint_every_turns > 0
                 and self._player_turns % self.config.checkpoint_every_turns == 0):
-            self._write_logbook_entry()
-            self._emit(LogbookWritten(str(self.logbook.path), "checkpoint"))
+            self._write_logbook_entries("checkpoint")
 
     def _can_stream(self) -> bool:
         return (self.config.llm.stream
@@ -437,14 +477,38 @@ class NPCApp:
             return " ".join(spoken)
         return extract_dialogue("".join(raw), self.npc_name)
 
-    def _record_npc_reply(self, reply: str) -> None:
-        self.history.add_npc(reply)
-        self.transcript.append_turn("NPC", reply)
-        self._emit(NpcReplied(self.npc_name, reply))
+    def _record_npc_reply(self, slot: CharacterSlot, reply: str) -> None:
+        slot.history.add_npc(reply)
+        slot.turns.append((slot.name, reply))
+        self.transcript.append_turn(slot.name, reply)
+        self._emit(NpcReplied(slot.name, reply))
 
-    def _write_logbook_entry(self) -> None:
-        body = self.llm.summarize_session(
-            self.transcript.read(),
-            self.logbook.tail(self.config.logbook_sessions_in_prompt),
-        )
-        self.logbook.upsert_entry(self.session_no, date.today().isoformat(), body)
+    def _add_ooc(self, text: str) -> None:
+        """Worker handler for bare typed lines: a standing GM note for
+        whichever NPC is active when it is processed."""
+        slot = self.active
+        slot.ooc_notes.append(text)
+        slot.history.add_ooc(text)
+        slot.turns.append(("GM", text))
+        slot.dirty = True
+        self.transcript.append_turn("GM", text)
+        self._emit(GmNoteAdded(text))
+
+    def _player_tag(self, slot: CharacterSlot) -> str:
+        """Transcript attribution: single-NPC campaigns stay clean."""
+        return "PLAYER" if len(self.roster) == 1 else f"PLAYER → {slot.name}"
+
+    def _write_logbook_entries(self, kind) -> None:
+        """Summarize every NPC with unsummarized turns into THEIR OWN logbook
+        (strict per-NPC memory) — each from their own turn buffer, so an NPC
+        never learns what players told someone else."""
+        for slot in self.roster.values():
+            if slot.player_turns == 0 or not slot.dirty:
+                continue
+            body = self.llm.summarize_session(
+                render_turns(slot.turns),
+                slot.logbook.tail(self.config.logbook_sessions_in_prompt),
+            )
+            slot.logbook.upsert_entry(self.session_no, date.today().isoformat(), body)
+            slot.dirty = False
+            self._emit(LogbookWritten(str(slot.logbook.path), kind))
