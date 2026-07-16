@@ -89,6 +89,26 @@ uv sync                               # CPU-only
 uv sync --extra cuda                  # with NVIDIA GPU (adds CUDA libs for whisper)
 ```
 
+There is no bare `npc` command after this — the program lives inside the
+project's virtualenv, so every command in this README is invoked through uv,
+from the project directory:
+
+```bash
+uv run npc <command> …
+```
+
+If you'd rather type `npc` directly, from any directory, install it once as a
+uv tool:
+
+```bash
+uv tool install --editable ~/path/to/npc
+```
+
+That puts `npc` on your PATH (`~/.local/bin`), and `--editable` means it
+always runs the current code in your clone — pulling new commits is enough,
+no reinstall. From then on `npc run campaigns/mygame` works anywhere; the
+`uv run` prefix in the examples below becomes optional.
+
 ### 4. Check everything
 
 ```bash
