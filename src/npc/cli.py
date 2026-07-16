@@ -100,13 +100,15 @@ def cmd_say(args) -> int:
 def cmd_run(args) -> int:
     from .app import NPCApp
     from .doctor import print_report, run_checks
-    from .events import TurnCompleted, format_timings, print_event
+    from .events import NpcSwitched, TurnCompleted, format_timings, print_event
     from .llm import make_llm_client
 
+    from .roster import discover_character_files
+
     config = load_config(Path(args.campaign))
-    if not config.character_file.exists():
-        print(f"no character.md in {config.campaign_dir} — run: npc init "
-              f"{args.campaign}", file=sys.stderr)
+    if not discover_character_files(config.campaign_dir):
+        print(f"no character.md or characters/*.md in {config.campaign_dir} — "
+              f"run: npc init {args.campaign}", file=sys.stderr)
         return 1
 
     checks = run_checks(config, deep=False)
@@ -137,11 +139,18 @@ def cmd_run(args) -> int:
     else:
         print("! voice input disabled this session (see FAILs above); /say still works")
 
-    speaker = None
+    speaker = make_speaker = None
     if "Piper voice" not in failed_soft and "Audio output" not in failed_soft:
+        from .audio.player import AudioPlayer
         from .tts import PiperSpeaker
 
-        speaker = PiperSpeaker(config.tts.voice_path)
+        # ONE AudioPlayer for every voice: its persistent output stream is
+        # what keeps the ALSA PipeWire plugin's close bug out of sessions
+        player = AudioPlayer()
+        speaker = PiperSpeaker(config.tts.voice_path, player=player)
+
+        def make_speaker(voice_path, _player=player):
+            return PiperSpeaker(voice_path, player=_player)
     else:
         print("! spoken replies disabled this session (see FAILs above)")
 
@@ -152,10 +161,13 @@ def cmd_run(args) -> int:
         if args.timings and isinstance(event, TurnCompleted):
             print(format_timings(event))
         if overlay is not None:
+            if isinstance(event, NpcSwitched):
+                # late-connecting OBS pages get the current name in Hello
+                overlay.hello["npc_name"] = event.npc_name
             overlay.publish(event)
 
     app = NPCApp(config, llm=llm, transcriber=transcriber, recorder=recorder,
-                 speaker=speaker, on_event=on_event)
+                 speaker=speaker, make_speaker=make_speaker, on_event=on_event)
 
     if config.overlay.enabled or args.overlay:
         from .overlay import OverlayServer
@@ -172,6 +184,8 @@ def cmd_run(args) -> int:
 
     app.start()
     print(f"\n{app.npc_name} is listening — session {app.session_no}.")
+    if len(app.roster) > 1:
+        print(f"{len(app.roster)} NPCs in this campaign — /npc lists and switches.")
     verb = "Tap" if config.hotkey.mode == "tap" else "Hold"
     print(f"{verb} {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
 

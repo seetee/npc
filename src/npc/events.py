@@ -72,6 +72,13 @@ class GmNoteAdded(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class NpcSwitched(Event):
+    """The GM switched the active NPC with /npc."""
+    npc_name: str
+    voice: str | None = None  # piper voice name; None = campaign default
+
+
+@dataclass(frozen=True, slots=True)
 class Busy(Event):
     pass
 
@@ -131,6 +138,7 @@ class StatusReport(Event):
     gm_notes: int
     last_turn_seconds: float | None = None
     avg_turn_seconds: float | None = None
+    roster_size: int | None = None  # rendered only when the campaign has >1 NPC
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +168,9 @@ def format_event(event: Event) -> str | None:
             return None  # the CLI prints the finished NpcReplied line
         case GmNoteAdded():
             return "[noted — will shape the NPC's behavior]"
+        case NpcSwitched(npc_name=name, voice=voice):
+            text = f"[now speaking: {name}"
+            return text + (f" — voice {voice}]" if voice else "]")
         case Busy():
             return "[busy — still working on the previous line]"
         case VoiceUnavailable():
@@ -180,11 +191,14 @@ def format_event(event: Event) -> str | None:
                 text += f"\n[changed {', '.join(restart_needed)} — takes effect after restart]"
             return text
         case StatusReport() as s:
+            roster = (f" (roster {s.roster_size})"
+                      if s.roster_size and s.roster_size > 1 else "")
             timing = ""
             if s.last_turn_seconds is not None:
                 timing = (f" | last turn {s.last_turn_seconds:.1f}s, "
                           f"avg {s.avg_turn_seconds:.1f}s")
-            return (f"[state: {s.state} | NPC: {s.npc_name} | model: {s.model} | "
+            return (f"[state: {s.state} | NPC: {s.npc_name}{roster} | "
+                    f"model: {s.model} | "
                     f"session {s.session_no}, {s.player_turns} player turns | "
                     f"{s.gm_notes} standing GM notes{timing}]")
         case Info(message=message):

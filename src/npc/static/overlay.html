@@ -218,6 +218,13 @@ function handle(event) {
       plate.dataset.state = event.state;   // idle|recording|processing|speaking
       el("state").textContent = STATES[event.state] ?? event.state;
       break;
+    case "NpcSwitched":
+      el("name").textContent = event.npc_name;
+      el("reply-label").textContent = event.npc_name.split(" ")[0];
+      el("player").textContent = "";       // the shown exchange was the old NPC's
+      el("reply").textContent = "";
+      streamed = "";
+      break;
     case "PlayerSpoke":
       el("player").textContent = event.text;
       streamed = "";

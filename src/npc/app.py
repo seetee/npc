@@ -28,6 +28,7 @@ from .events import (
     MicrophoneError,
     NpcReplied,
     NpcReplyChunk,
+    NpcSwitched,
     PlayerSpoke,
     RecordingDiscarded,
     RecordingStarted,
@@ -60,6 +61,7 @@ HELP = """\
 Voice (hold the push-to-talk key)  in-character player dialogue
 <typed text>                       out-of-character instruction to the LLM
 /say <text>                        typed in-character player line
+/npc [name]                        list NPCs / switch who you're talking to
 /save                              summarize session into the logbook now
 /reload                            re-read character.md / adventure.md / config.toml
 /status                            show state, model, session info
@@ -70,12 +72,16 @@ Voice (hold the push-to-talk key)  in-character player dialogue
 
 class NPCApp:
     def __init__(self, config: Config, *, llm, transcriber=None, recorder=None,
-                 speaker=None, on_event: Callable[[Event], None] | None = None):
+                 speaker=None, make_speaker=None,
+                 on_event: Callable[[Event], None] | None = None):
         self.config = config
         self.llm = llm
         self.transcriber = transcriber
         self.recorder = recorder
         self.speaker = speaker  # the ACTIVE speaker (hotkey thread reads it for barge-in)
+        self._default_speaker = speaker
+        self._make_speaker = make_speaker  # builds a Speaker for a voice .onnx path
+        self._speakers = {config.tts.voice: speaker} if speaker is not None else {}
         self._on_event = on_event or print_event
 
         self.transcript = Transcript(config.sessions_dir)
@@ -144,6 +150,7 @@ class NPCApp:
                             "— keeping their memory until /end]"))
         if not hasattr(self, "active"):
             self.active = next(iter(self.roster.values()))
+            self.speaker = self._speaker_for(self.active)
         if self.config.adventure_file.exists():
             self.adventure = self.config.adventure_file.read_text(encoding="utf-8")
 
@@ -297,6 +304,8 @@ class NPCApp:
                     self._emit(Info("[usage: /say <what the player says>]"))
                 else:
                     self._queue.put(("say", arg))
+            case "/npc":
+                self._cmd_npc(arg)
             case "/save":
                 self._queue.put(("save", None))
             case "/reload":
@@ -314,6 +323,7 @@ class NPCApp:
                     last_turn_seconds=(self._last_turn.total_seconds
                                        if self._last_turn else None),
                     avg_turn_seconds=sum(totals) / len(totals) if totals else None,
+                    roster_size=len(self.roster),
                 ))
             case "/help":
                 self._emit(Info(HELP))
@@ -340,6 +350,8 @@ class NPCApp:
                     self._respond_to_player(payload)
                 elif kind == "ooc":
                     self._add_ooc(payload)
+                elif kind == "npc":
+                    self._switch_npc(payload)
                 elif kind == "save":
                     if any(s.dirty and s.player_turns > 0
                            for s in self.roster.values()):
@@ -497,6 +509,62 @@ class NPCApp:
     def _player_tag(self, slot: CharacterSlot) -> str:
         """Transcript attribution: single-NPC campaigns stay clean."""
         return "PLAYER" if len(self.roster) == 1 else f"PLAYER → {slot.name}"
+
+    # ---------- NPC switching ----------
+
+    def _cmd_npc(self, arg: str) -> None:
+        """Main thread: resolve the name and enqueue the switch (it must
+        serialize with in-flight turns); bare /npc lists the roster."""
+        from .roster import resolve_npc
+
+        if not arg:
+            self._emit(Info(self._roster_listing()))
+            return
+        found = resolve_npc(self.roster, arg)
+        if isinstance(found, list):
+            problem = "ambiguous" if found else "unknown"
+            self._emit(Info(f"[{problem} NPC {arg!r}]\n" + self._roster_listing()))
+            return
+        if found is self.active:
+            self._emit(Info(f"[already speaking with {found.name}]"))
+            return
+        if self.state is not State.IDLE:
+            self._emit(Info(f"[switching to {found.name} after the current line]"))
+        self._queue.put(("npc", found.stem))
+
+    def _roster_listing(self) -> str:
+        lines = ["NPCs in this campaign:"]
+        for slot in self.roster.values():
+            marker = "  * " if slot is self.active else "    "
+            voice = slot.voice or self.config.tts.voice
+            lines.append(f"{marker}{slot.name} ({slot.stem}) — voice {voice}"
+                         + ("  [active]" if slot is self.active else ""))
+        return "\n".join(lines)
+
+    def _switch_npc(self, stem: str) -> None:
+        """Worker thread: swap the active slot. Speaker is assigned BEFORE
+        the slot so the hotkey thread's barge-in reference never lags."""
+        slot = self.roster[stem]
+        self.speaker = self._speaker_for(slot)
+        self.active = slot
+        self._emit(NpcSwitched(slot.name, slot.voice))
+
+    def _speaker_for(self, slot: CharacterSlot):
+        """The speaker for a slot's voice, created lazily and cached by voice
+        name; unavailable voices fall back to the campaign default."""
+        voice = slot.voice or self.config.tts.voice
+        if voice in self._speakers:
+            return self._speakers[voice]
+        if self._make_speaker is None:
+            return self._default_speaker
+        try:
+            speaker = self._make_speaker(self.config.tts.voice_path_for(voice))
+        except Exception as e:
+            self._emit(ErrorOccurred(
+                f"voice {voice!r} unavailable ({e}) — using the default voice"))
+            return self._default_speaker
+        self._speakers[voice] = speaker
+        return speaker
 
     def _write_logbook_entries(self, kind) -> None:
         """Summarize every NPC with unsummarized turns into THEIR OWN logbook

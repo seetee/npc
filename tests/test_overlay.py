@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from npc.events import NpcReplied, State, StateChanged, TurnCompleted
+from npc.events import NpcReplied, NpcSwitched, State, StateChanged, TurnCompleted
 from npc.overlay import OverlayServer, event_to_json
 
 
@@ -17,6 +17,8 @@ def test_event_to_json_types_and_enums():
     timings = json.loads(event_to_json(TurnCompleted(None, 0.3, 2.0, None, 4.5)))
     assert timings["stt_seconds"] is None
     assert timings["llm_first_token_seconds"] == 0.3
+    assert json.loads(event_to_json(NpcSwitched("Korval the Red", None))) == {
+        "type": "NpcSwitched", "npc_name": "Korval the Red", "voice": None}
 
 
 @pytest.fixture
