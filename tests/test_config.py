@@ -41,6 +41,13 @@ def test_unknown_key_is_a_friendly_error(tmp_path):
         load_config(tmp_path)
 
 
+def test_env_var_overrides_config_api_key(tmp_path, monkeypatch):
+    (tmp_path / "config.toml").write_text('[llm]\napi_key = "from-file"\n')
+    assert load_config(tmp_path).llm.api_key == "from-file"
+    monkeypatch.setenv("NPC_LLM_API_KEY", "from-env")
+    assert load_config(tmp_path).llm.api_key == "from-env"
+
+
 def test_voice_path_expands_user(tmp_path):
     (tmp_path / "config.toml").write_text('[tts]\nvoices_dir = "~/voices"\n')
     config = load_config(tmp_path)

@@ -13,6 +13,8 @@
 # timeout_seconds = 60              # per-request cap; a hung server becomes an error, not a stuck session
 # retries = 1                       # extra attempts after connection failures (HTTP errors never retry)
 # stream = true                     # speak sentence-by-sentence while the reply generates
+# api_key = ""                      # OpenAI-compatible servers only — stored in PLAINTEXT here;
+#                                   # prefer:  export NPC_LLM_API_KEY=...  (overrides this value)
 
 [stt]
 # model = "small"                   # whisper size: tiny/base/small/medium/large-v3

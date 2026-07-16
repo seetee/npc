@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,7 @@ class LlmConfig:
     timeout_seconds: float = 60.0  # per-request cap; a hung server becomes an error, not a stuck session
     retries: int = 1  # extra attempts after connection-level failures (never after HTTP errors)
     stream: bool = True  # speak sentence-by-sentence while the reply generates
+    api_key: str = ""  # OpenAI-compatible servers only; NPC_LLM_API_KEY env var overrides
 
 
 @dataclass
@@ -115,4 +117,6 @@ def load_config(campaign_dir: Path) -> Config:
     if config.hotkey.mode not in ("hold", "tap"):
         raise ConfigError(f'{toml_path}: hotkey.mode must be "hold" or "tap", '
                           f"got {config.hotkey.mode!r}")
+    if os.environ.get("NPC_LLM_API_KEY"):
+        config.llm.api_key = os.environ["NPC_LLM_API_KEY"]
     return config

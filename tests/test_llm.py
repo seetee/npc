@@ -203,6 +203,38 @@ def test_factory_passes_timeout_and_retries():
     assert compat._http.timeout == httpx.Timeout(5.0)
 
 
+def test_api_key_sent_on_all_request_kinds():
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, request.headers.get("authorization")))
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": []})
+        if b'"stream": true' in request.content or b'"stream":true' in request.content:
+            return sse("Hi.")
+        return reply_ok()
+
+    client = OpenAICompatClient("http://localhost:1337", "m", api_key="sk-test",
+                                transport=httpx.MockTransport(handler))
+    client.chat("S", [])
+    list(client.chat_stream("S", []))
+    client.available_models()
+    assert [auth for _, auth in seen] == ["Bearer sk-test"] * 3
+
+
+def test_no_auth_header_when_api_key_empty():
+    def handler(request):
+        assert "authorization" not in request.headers
+        return reply_ok()
+
+    make_client(handler).chat("S", [])
+
+
+def test_factory_passes_api_key():
+    client = make_llm_client(LlmConfig(backend="openai", api_key="sk-abc"))
+    assert client._http.headers["authorization"] == "Bearer sk-abc"
+
+
 def test_factory_backends():
     assert isinstance(make_llm_client(LlmConfig()), OllamaClient)
     for alias in ("openai", "openai-compatible", "jan", "lmstudio", "OpenAI"):

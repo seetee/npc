@@ -191,7 +191,7 @@ class OpenAICompatClient(_ChatClient):
     _server_hint = "is your server (Jan / LM Studio / llama.cpp / vLLM) running?"
 
     def __init__(self, host: str, model: str, timeout_seconds: float = 60.0,
-                 retries: int = 1, transport=None):
+                 retries: int = 1, api_key: str = "", transport=None):
         import httpx
 
         base = host.rstrip("/")
@@ -202,8 +202,10 @@ class OpenAICompatClient(_ChatClient):
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.retries = retries
+        # one client, so the header covers chat, chat_stream, and /models alike
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
         self._http = httpx.Client(base_url=base, timeout=timeout_seconds,
-                                  transport=transport)
+                                  headers=headers, transport=transport)
 
     def _chat(self, system: str, messages: list[dict[str, str]]) -> str:
         import httpx
@@ -261,7 +263,8 @@ def make_llm_client(llm_config) -> _ChatClient:
                             llm_config.timeout_seconds, llm_config.retries)
     if backend == "openai-compatible":
         return OpenAICompatClient(llm_config.host, llm_config.model,
-                                  llm_config.timeout_seconds, llm_config.retries)
+                                  llm_config.timeout_seconds, llm_config.retries,
+                                  api_key=llm_config.api_key)
     raise ConfigError(
         f"unknown llm backend {llm_config.backend!r} — use \"ollama\" or "
         f"\"openai\" (aliases: {', '.join(sorted(set(_BACKEND_ALIASES) - {'ollama'}))})"

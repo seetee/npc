@@ -120,6 +120,7 @@ class NPCApp:
                 ("llm.timeout/retries",
                  (new.llm.timeout_seconds, new.llm.retries)
                  != (self.config.llm.timeout_seconds, self.config.llm.retries)),
+                ("llm.api_key", new.llm.api_key != self.config.llm.api_key),
                 ("[stt]", new.stt != self.config.stt),
                 ("[tts]", new.tts != self.config.tts),
                 ("[hotkey]", new.hotkey != self.config.hotkey),
