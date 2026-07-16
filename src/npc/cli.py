@@ -41,13 +41,20 @@ def cmd_init(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    from .doctor import print_report, run_checks
+    from .doctor import apply_fixes, print_report, run_checks
 
     config = load_config(Path(args.campaign))
     print(f"Checking setup for {config.campaign_dir} …")
     checks = run_checks(config, deep=True)
-    all_ok = all(c.ok for c in checks)
     print_report(checks)
+    if args.fix and not all(c.ok for c in checks):
+        if not sys.stdin.isatty():
+            print("--fix skipped: not an interactive terminal")
+        elif apply_fixes(checks):
+            print("\nRe-checking …")
+            checks = run_checks(config, deep=True)
+            print_report(checks)
+    all_ok = all(c.ok for c in checks)
     print("\nAll good — ready to play." if all_ok
           else "\nFix the FAILs above (commands are copy-pasteable).")
     return 0 if all_ok else 1
@@ -288,7 +295,9 @@ def main(argv=None) -> int:
     p = add("run", cmd_run, "run the NPC for a play session")
     p.add_argument("--timings", action="store_true",
                    help="print per-stage turn timings after each reply")
-    add("doctor", cmd_doctor, "check (and set up) everything the NPC needs")
+    p = add("doctor", cmd_doctor, "check (and set up) everything the NPC needs")
+    p.add_argument("--fix", action="store_true",
+                   help="offer to run the safe fixes (model pull, voice download)")
     p = add("transcribe", cmd_transcribe, "debug: transcribe a wav file")
     p.add_argument("file", help="16-bit PCM wav file")
     p = add("say", cmd_say, "debug: speak a line with the NPC voice")

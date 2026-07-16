@@ -125,6 +125,23 @@ def test_ollama_missing_model_suggests_pull():
         client.chat("S", [])
 
 
+def test_ollama_pull_model_reports_progress():
+    body = (b'{"status":"pulling manifest"}\n'
+            b'{"status":"downloading","completed":50,"total":100}\n'
+            b'{"status":"success"}\n')
+
+    def handler(request):
+        assert request.url.path == "/api/pull"
+        return httpx.Response(200, content=body)
+
+    client = OllamaClient("http://localhost:11434", "m",
+                          transport=httpx.MockTransport(handler))
+    seen = []
+    client.pull_model(seen.append)
+    assert "downloading 50%" in seen
+    assert seen[-1] == "success"
+
+
 def test_ollama_connection_error_is_friendly():
     def handler(request):
         raise httpx.ConnectError("refused")  # ollama wraps this in ConnectionError

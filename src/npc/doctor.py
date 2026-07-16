@@ -5,6 +5,7 @@ and refuses to start only on hard failures (Ollama + model)."""
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,8 @@ class CheckResult:
     detail: str = ""
     fix: str = ""
     hard: bool = False  # hard failures prevent `npc run` from starting
+    fixer: Callable[[], None] | None = None  # safe in-process fix (--fix); never sudo
+    fix_label: str = ""  # human sentence for the [y/N] prompt
 
 
 def _whisper_cache_dir(model_size: str) -> Path:
@@ -53,11 +56,22 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
             others = client.available_models()
             if others:
                 detail += f" (available: {', '.join(others[:5])})"
+        def fix_model():
+            def progress(status: str) -> None:
+                print(f"\r         {status:<60}", end="", flush=True)
+
+            try:
+                client.pull_model(progress)
+            finally:
+                print()
+
         checks.append(CheckResult(
             "LLM model", has, detail=detail, hard=True,
             fix=(f"ollama pull {config.llm.model}" if is_ollama else
                  "download/load the model in your LLM app, or set [llm] model in "
                  "config.toml to one of the available names"),
+            fixer=fix_model if is_ollama else None,
+            fix_label=f"pull {config.llm.model} with Ollama (may be several GB)",
         ))
 
     # 3. Whisper model cached (offline after first download)
@@ -78,9 +92,18 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
 
     # 4. Piper voice
     voice_path = config.tts.voice_path
+
+    def fix_voice():
+        from piper.download_voices import download_voice
+
+        voice_path.parent.mkdir(parents=True, exist_ok=True)
+        download_voice(config.tts.voice, voice_path.parent)
+
     checks.append(CheckResult(
         f"Piper voice ({config.tts.voice})", voice_path.exists(), detail=str(voice_path),
         fix=download_hint(config.tts.voice, voice_path.parent),
+        fixer=fix_voice,
+        fix_label=f"download the {config.tts.voice} voice (~60 MB)",
     ))
 
     # 5. Audio devices
@@ -116,6 +139,27 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
         ))
 
     return checks
+
+
+def apply_fixes(checks: list[CheckResult], ask=input, out=print) -> bool:
+    """Interactively run the safe fixers of failed checks (`doctor --fix`).
+    Returns True when anything was attempted, so the caller re-runs the
+    checks. sudo-level problems (libportaudio2, the input group) never get a
+    fixer — their fix strings stay copy-paste-only on purpose."""
+    attempted = False
+    for check in checks:
+        if check.ok or check.fixer is None:
+            continue
+        answer = ask(f"  fix now — {check.fix_label or check.name}? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            continue
+        attempted = True
+        try:
+            check.fixer()
+            out(f"  fixed: {check.name}")
+        except Exception as e:
+            out(f"  fix failed for {check.name}: {e}")
+    return attempted
 
 
 def print_report(checks: list[CheckResult], out=print) -> bool:

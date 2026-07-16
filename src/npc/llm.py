@@ -176,6 +176,15 @@ class OllamaClient(_ChatClient):
             message += f" — pull the model with `ollama pull {self.model}`"
         return LlmError(message)
 
+    def pull_model(self, progress=lambda status: None) -> None:
+        """Download self.model via the Ollama server (used by doctor --fix);
+        progress receives human-readable status lines."""
+        for part in self._client.pull(self.model, stream=True):
+            status = part.status or ""
+            if part.total:
+                status += f" {100 * (part.completed or 0) / part.total:.0f}%"
+            progress(status)
+
     def available_models(self) -> list[str]:
         return [m.model for m in self._client.list().models]
 
