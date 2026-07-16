@@ -27,10 +27,11 @@ class FakeLLM:
     def __init__(self):
         self.calls = []
         self.reply = "Greetings, traveler."
+        self.replies = []  # optional queue; falls back to .reply when empty
 
     def chat(self, system, messages):
         self.calls.append((system, messages))
-        return self.reply
+        return self.replies.pop(0) if self.replies else self.reply
 
     def summarize_session(self, transcript, logbook_tail):
         return f"**Location:** the docks\n(summary of {len(transcript)} chars)"
@@ -314,6 +315,56 @@ def test_broken_event_subscriber_does_not_kill_the_session(config):
     app._queue.join()
     app._queue.put(None)
     assert len(app.llm.calls) == 1                 # turn still completed
+
+
+# ---------- English-only lock ----------
+
+def test_non_english_reply_is_reasked_in_english(app):
+    app.llm.replies = ["Ja, jag talar flera tungomål, resenär.",
+                       "Yes — I speak many tongues, traveler."]
+    app.handle_line("/say kan du tala svenska?")
+    drain(app)
+
+    assert len(app.llm.calls) == 2
+    correction = app.llm.calls[-1][1][-1]["content"]
+    assert "English-only" in correction
+    assert app.speaker.spoken == ["Yes — I speak many tongues, traveler."]
+    assert of_type(app, NpcReplied)[-1].text == "Yes — I speak many tongues, traveler."
+
+
+def test_streaming_foreign_reply_never_reaches_tts(config):
+    llm = StreamingFakeLLM(chunks=("Ja, jag talar gärna ",
+                                   "ert tungomål, resenär."))
+    llm.replies = ["Ja, jag talar ert tungomål, resenär.",
+                   "Yes, I will speak your tongue."]
+    events = []
+    app = NPCApp(config, llm=llm, speaker=StreamingFakeSpeaker(),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say tala svenska!")
+    drain(app)
+    app._queue.put(None)
+
+    assert llm.stream_calls == 1
+    assert len(llm.calls) == 2                     # fallback chat + English retry
+    assert app.speaker.spoken == ["Yes, I will speak your tongue."]
+
+
+def test_streaming_mid_reply_language_flip_is_skipped_from_audio(config):
+    llm = StreamingFakeLLM(chunks=("You test my patience, traveler. ",
+                                   "Ja, jag talar svenska, ju. Leave this place now."))
+    events = []
+    app = NPCApp(config, llm=llm, speaker=StreamingFakeSpeaker(),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say hello")
+    drain(app)
+    app._queue.put(None)
+
+    assert app.speaker.spoken == ["You test my patience, traveler.",
+                                  "Leave this place now."]
 
 
 # ---------- latency instrumentation ----------

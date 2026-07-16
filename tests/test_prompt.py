@@ -1,6 +1,6 @@
 import pytest
 
-from npc.session.prompt import build_system_prompt, extract_dialogue
+from npc.session.prompt import build_system_prompt, extract_dialogue, looks_foreign
 
 
 def test_all_sections_in_order():
@@ -76,6 +76,33 @@ def test_prompt_bans_first_person_narration_with_example():
     prompt = build_system_prompt("X", "", "", [])
     assert "NEVER narrate" in prompt
     assert "WRONG:" in prompt and "RIGHT:" in prompt
+
+
+def test_prompt_locks_language_even_when_challenged():
+    prompt = build_system_prompt("X", "", "", [])
+    assert "translate into, or demonstrate another language" in prompt
+
+
+@pytest.mark.parametrize("text", [
+    "Ja, jag talar flera tungomål, resenär.",
+    "Ja, jag talar svenska, ju.",                      # short + all-ASCII Swedish
+    "Oui, je parle la langue des anciens.",
+    "Ich verstehe die alte Sprache sehr gut.",
+    "Claro que sí, pero el conocimiento tiene su precio.",
+])
+def test_foreign_replies_are_flagged(text):
+    assert looks_foreign(text)
+
+
+@pytest.mark.parametrize("text", [
+    "Of course I speak the old tongue — its words are not for untrained ears.",
+    "You will die here, traveler.",                    # one list collision is not enough
+    "The elders called it 'månsten', long ago.",       # quoting one foreign word is fine
+    "The dragon's den lies east of the spire.",
+    "",
+])
+def test_english_replies_are_not_flagged(text):
+    assert not looks_foreign(text)
 
 
 def test_pure_stage_direction_falls_back_to_plain_text():

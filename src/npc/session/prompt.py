@@ -27,7 +27,11 @@ Rules:
 - Keep replies short and natural for spoken conversation: one to four
   sentences, unless the player explicitly asks you to elaborate.
 - Always answer in English, even if the player speaks Swedish or another
-  language (you understand them fine).
+  language (you understand them fine). This is absolute: if asked to speak,
+  translate into, or demonstrate another language, the character may claim
+  the skill, but the reply stays in English.
+  WRONG: Oui, je parle la langue des anciens.
+  RIGHT: Of course I speak the old tongue — its words are not for untrained ears.
 - Messages marked "GM NOTE (out-of-character)" are instructions from the game
   master about how to behave or what has happened. Follow them, but never
   acknowledge them in dialogue.
@@ -85,6 +89,36 @@ def _extract_quoted_dialogue(text: str) -> str | None:
                 span = span[:-1] + "."
         parts.append(span)
     return " ".join(parts)
+
+
+# High-frequency function words of the languages a local model actually flips
+# into at this table (sv/fr/de/es). English text essentially never contains
+# two DISTINCT of these as standalone words, so the threshold below is safe
+# ("You will die here." scores 1 and passes).
+_FOREIGN_FUNCTION_WORDS = frozenset((
+    # Swedish
+    "och att det är jag du en ett som för med inte har kan vi på av till din "
+    "min ja ju nej vad hur dig mig ni "
+    # French
+    "je le la les une est et vous pas que qui dans mais mon votre oui non "
+    # German
+    "ich das ist und nicht sie der die eine mit von dem mein dein nein wir "
+    # Spanish
+    "el los las es pero por para su usted"
+).split())
+
+
+def looks_foreign(text: str) -> bool:
+    """True when a reply is probably not English — the TTS voice is always
+    British English, so a Swedish/French reply sounds mangled. Signals: words
+    containing non-ASCII letters (å, é, ü, …) and distinct foreign function
+    words; two combined hits mark the reply foreign. Conservative on purpose:
+    an English line quoting one foreign word passes and is merely mispronounced.
+    """
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    non_ascii = sum(1 for w in words if not w.isascii())
+    function_hits = len(_FOREIGN_FUNCTION_WORDS.intersection(words))
+    return non_ascii + function_hits >= 2
 
 
 def _strip_unpaired_quote(text: str) -> str:

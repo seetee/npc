@@ -42,9 +42,19 @@ from .events import (
 from .llm import StreamingNotSupported
 from .session.history import ConversationHistory
 from .session.logbook import Logbook, Transcript
-from .session.prompt import build_system_prompt, extract_dialogue, strip_decoration
+from .session.prompt import (
+    build_system_prompt,
+    extract_dialogue,
+    looks_foreign,
+    strip_decoration,
+)
 from .session.sentences import iter_sentences
 from .stt import looks_like_hallucination
+
+
+class _NotEnglish(Exception):
+    """Streaming control flow: the reply opened in another language — abandon
+    the stream before any audio plays and let the non-streaming path re-ask."""
 
 HELP = """\
 Voice (hold the push-to-talk key)  in-character player dialogue
@@ -337,10 +347,18 @@ class NPCApp:
         timings: dict[str, float] = {}
         reply = (self._stream_reply(system, messages, timings)
                  if self._can_stream() else None)
-        if reply is None:  # streaming off, unsupported, or rejected by the server
+        if reply is None:  # streaming off/rejected, or the reply wasn't English
             timings.clear()
             t = time.perf_counter()
             reply = extract_dialogue(self.llm.chat(system, messages), self.npc_name)
+            if looks_foreign(reply):  # English-only lock: Alba can't speak this
+                self._emit(Info("[reply was not in English — asking again]"))
+                reply = extract_dialogue(self.llm.chat(system, messages + [
+                    {"role": "assistant", "content": reply},
+                    {"role": "user", "content":
+                     "GM NOTE (out-of-character): You broke the English-only "
+                     "rule. Give that reply again, entirely in English."},
+                ]), self.npc_name)
             timings["llm"] = time.perf_counter() - t
             self._record_npc_reply(reply)
             if self.speaker is not None and self._set_state_if({State.PROCESSING},
@@ -393,16 +411,23 @@ class NPCApp:
                     timings["llm"] = time.perf_counter() - t0
                     yield chunk
 
+            spoken_any = False
             for sentence in iter_sentences(chunks()):
                 cleaned = strip_decoration(sentence, self.npc_name)
-                if cleaned:  # a pure stage direction is never spoken
-                    yield cleaned
+                if not cleaned:  # a pure stage direction is never spoken
+                    continue
+                if looks_foreign(cleaned):
+                    if not spoken_any:
+                        raise _NotEnglish  # whole reply likely foreign — bail pre-audio
+                    continue  # mid-reply language flip: skip speaking this sentence
+                spoken_any = True
+                yield cleaned
 
         self._set_state_if({State.PROCESSING}, State.SPEAKING)
         t_speak = time.perf_counter()
         try:
             spoken, cancelled = self.speaker.say_stream(cleaned_sentences())
-        except StreamingNotSupported:
+        except (StreamingNotSupported, _NotEnglish):
             self._set_state_if({State.SPEAKING}, State.PROCESSING)
             return None
         timings["speak"] = time.perf_counter() - t_speak
