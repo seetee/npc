@@ -104,6 +104,9 @@ class NPCApp:
             name for name, changed in (
                 ("llm.backend", new.llm.backend != self.config.llm.backend),
                 ("llm.host", new.llm.host != self.config.llm.host),
+                ("llm.timeout/retries",
+                 (new.llm.timeout_seconds, new.llm.retries)
+                 != (self.config.llm.timeout_seconds, self.config.llm.retries)),
                 ("[stt]", new.stt != self.config.stt),
                 ("[tts]", new.tts != self.config.tts),
                 ("[hotkey]", new.hotkey != self.config.hotkey),

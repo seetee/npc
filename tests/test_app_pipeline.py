@@ -130,6 +130,26 @@ def test_say_command_is_in_character(app):
     assert app.speaker.spoken == ["Greetings, traveler."]
 
 
+def test_llm_failure_becomes_error_event_and_session_stays_usable(app):
+    from npc.llm import LlmError
+
+    real_chat = app.llm.chat
+
+    def boom(system, messages):
+        raise LlmError("cannot reach the LLM server at http://localhost:11434")
+
+    app.llm.chat = boom
+    app.handle_line("/say hello?")
+    drain(app)
+    assert any("cannot reach" in e.message for e in of_type(app, ErrorOccurred))
+    assert app.state is State.IDLE
+
+    app.llm.chat = real_chat                       # server "comes back"
+    app.handle_line("/say hello again")
+    drain(app)
+    assert app.speaker.spoken == ["Greetings, traveler."]
+
+
 def test_llm_decoration_is_stripped_before_speaking(app):
     app.llm.reply = ('Vess of the Amber Monolith: *adjusts her hood* '
                      '"Greetings, traveler." (smiles)')

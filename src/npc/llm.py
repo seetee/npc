@@ -34,13 +34,43 @@ _BACKEND_ALIASES = {
 }
 
 
+class LlmError(Exception):
+    """An LLM failure with a friendly, actionable message for the GM."""
+
+
 class _ChatClient:
-    """Shared behavior; subclasses implement chat() and the doctor helpers."""
+    """Shared behavior; subclasses implement _chat() and the doctor helpers."""
 
     model: str
+    host: str = ""
+    timeout_seconds: float = 60.0
+    retries: int = 1
+    _server_hint = "is it running?"
 
     def chat(self, system: str, messages: list[dict[str, str]]) -> str:
+        return self._with_retry(lambda: self._chat(system, messages))
+
+    def _chat(self, system: str, messages: list[dict[str, str]]) -> str:
         raise NotImplementedError
+
+    def _with_retry(self, call):
+        """Retry connection-level failures ([llm].retries extra attempts);
+        HTTP errors raise immediately. Everything surfaces as LlmError."""
+        import httpx
+
+        last: Exception | None = None
+        for _ in range(self.retries + 1):
+            try:
+                return call()
+            except (httpx.TransportError, ConnectionError) as e:
+                last = e
+        if isinstance(last, httpx.TimeoutException):
+            raise LlmError(
+                f"the LLM gave no answer within {self.timeout_seconds:g}s — a large "
+                f"model may still be loading; try again, or raise timeout_seconds "
+                f"under [llm] in config.toml") from last
+        raise LlmError(
+            f"cannot reach the LLM server at {self.host} — {self._server_hint}") from last
 
     def summarize_session(self, transcript: str, logbook_tail: str) -> str:
         prompt = ""
@@ -64,17 +94,33 @@ class _ChatClient:
 
 
 class OllamaClient(_ChatClient):
-    def __init__(self, host: str, model: str):
+    _server_hint = "is Ollama running? (`ollama serve`, check with `ollama ps`)"
+
+    def __init__(self, host: str, model: str, timeout_seconds: float = 60.0,
+                 retries: int = 1, transport=None):
         import ollama
 
+        self.host = host
         self.model = model
-        self._client = ollama.Client(host=host)
+        self.timeout_seconds = timeout_seconds
+        self.retries = retries
+        # extra kwargs are forwarded to the underlying httpx.Client
+        self._client = ollama.Client(host=host, timeout=timeout_seconds,
+                                     transport=transport)
 
-    def chat(self, system: str, messages: list[dict[str, str]]) -> str:
-        response = self._client.chat(
-            model=self.model,
-            messages=[{"role": "system", "content": system}, *messages],
-        )
+    def _chat(self, system: str, messages: list[dict[str, str]]) -> str:
+        import ollama
+
+        try:
+            response = self._client.chat(
+                model=self.model,
+                messages=[{"role": "system", "content": system}, *messages],
+            )
+        except ollama.ResponseError as e:
+            message = f"Ollama error: {e.error}"
+            if e.status_code == 404:
+                message += f" — pull the model with `ollama pull {self.model}`"
+            raise LlmError(message) from e
         return response["message"]["content"].strip()
 
     def available_models(self) -> list[str]:
@@ -89,22 +135,36 @@ class OpenAICompatClient(_ChatClient):
     """Speaks the OpenAI chat-completions dialect served by Jan, LM Studio,
     llama.cpp server, vLLM — and Ollama itself at :11434/v1."""
 
-    def __init__(self, host: str, model: str, transport=None):
+    _server_hint = "is your server (Jan / LM Studio / llama.cpp / vLLM) running?"
+
+    def __init__(self, host: str, model: str, timeout_seconds: float = 60.0,
+                 retries: int = 1, transport=None):
         import httpx
 
         base = host.rstrip("/")
         if not base.endswith("/v1"):
             base += "/v1"
         self.base_url = base
+        self.host = host
         self.model = model
-        self._http = httpx.Client(base_url=base, timeout=120.0, transport=transport)
+        self.timeout_seconds = timeout_seconds
+        self.retries = retries
+        self._http = httpx.Client(base_url=base, timeout=timeout_seconds,
+                                  transport=transport)
 
-    def chat(self, system: str, messages: list[dict[str, str]]) -> str:
+    def _chat(self, system: str, messages: list[dict[str, str]]) -> str:
+        import httpx
+
         response = self._http.post("/chat/completions", json={
             "model": self.model,
             "messages": [{"role": "system", "content": system}, *messages],
         })
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            body = e.response.text.strip()[:200]
+            raise LlmError(f"LLM server returned {e.response.status_code} "
+                           f"for model {self.model!r}: {body}") from e
         return response.json()["choices"][0]["message"]["content"].strip()
 
     def available_models(self) -> list[str]:
@@ -119,9 +179,11 @@ class OpenAICompatClient(_ChatClient):
 def make_llm_client(llm_config) -> _ChatClient:
     backend = _BACKEND_ALIASES.get(llm_config.backend.lower().strip())
     if backend == "ollama":
-        return OllamaClient(llm_config.host, llm_config.model)
+        return OllamaClient(llm_config.host, llm_config.model,
+                            llm_config.timeout_seconds, llm_config.retries)
     if backend == "openai-compatible":
-        return OpenAICompatClient(llm_config.host, llm_config.model)
+        return OpenAICompatClient(llm_config.host, llm_config.model,
+                                  llm_config.timeout_seconds, llm_config.retries)
     raise ConfigError(
         f"unknown llm backend {llm_config.backend!r} — use \"ollama\" or "
         f"\"openai\" (aliases: {', '.join(sorted(set(_BACKEND_ALIASES) - {'ollama'}))})"

@@ -2,7 +2,7 @@ import httpx
 import pytest
 
 from npc.config import ConfigError, LlmConfig
-from npc.llm import OllamaClient, OpenAICompatClient, make_llm_client
+from npc.llm import LlmError, OllamaClient, OpenAICompatClient, make_llm_client
 
 
 def make_client(handler, host="http://localhost:1337", model="qwen2.5-7b"):
@@ -50,6 +50,90 @@ def test_models_listing_and_is_up():
 
     down = make_client(lambda r: httpx.Response(503))
     assert not down.is_up()
+
+
+def reply_ok(text="Hello."):
+    return httpx.Response(200, json={
+        "choices": [{"message": {"role": "assistant", "content": text}}],
+    })
+
+
+def test_timeout_once_is_retried_transparently():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("slow model")
+        return reply_ok()
+
+    client = make_client(handler)
+    assert client.chat("S", []) == "Hello."
+    assert calls["n"] == 2
+
+
+def test_timeout_always_raises_friendly_error_after_retries():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        raise httpx.ReadTimeout("slow model")
+
+    client = make_client(handler)
+    with pytest.raises(LlmError, match="timeout_seconds"):
+        client.chat("S", [])
+    assert calls["n"] == 2  # retries=1 → two attempts, then give up
+
+
+def test_connect_error_names_the_host():
+    def handler(request):
+        raise httpx.ConnectError("refused")
+
+    client = make_client(handler)
+    with pytest.raises(LlmError, match="localhost:1337"):
+        client.chat("S", [])
+
+
+def test_http_error_is_never_retried():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(400, text="bad request")
+
+    client = make_client(handler)
+    with pytest.raises(LlmError, match="400"):
+        client.chat("S", [])
+    assert calls["n"] == 1
+
+
+def test_ollama_missing_model_suggests_pull():
+    def handler(request):
+        return httpx.Response(404, json={"error": "model 'qwen' not found"})
+
+    client = OllamaClient("http://localhost:11434", "qwen",
+                          transport=httpx.MockTransport(handler))
+    with pytest.raises(LlmError, match="ollama pull qwen"):
+        client.chat("S", [])
+
+
+def test_ollama_connection_error_is_friendly():
+    def handler(request):
+        raise httpx.ConnectError("refused")  # ollama wraps this in ConnectionError
+
+    client = OllamaClient("http://localhost:11434", "qwen",
+                          transport=httpx.MockTransport(handler))
+    with pytest.raises(LlmError, match="ollama serve"):
+        client.chat("S", [])
+
+
+def test_factory_passes_timeout_and_retries():
+    config = LlmConfig(timeout_seconds=5.0, retries=2)
+    client = make_llm_client(config)
+    assert (client.timeout_seconds, client.retries) == (5.0, 2)
+    compat = make_llm_client(LlmConfig(backend="openai", timeout_seconds=5.0, retries=2))
+    assert (compat.timeout_seconds, compat.retries) == (5.0, 2)
+    assert compat._http.timeout == httpx.Timeout(5.0)
 
 
 def test_factory_backends():

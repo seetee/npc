@@ -10,6 +10,8 @@
 # backend = "ollama"                # or "openai" for Jan, LM Studio, llama.cpp, vLLM, …
 # model = "qwen2.5:7b-instruct"     # Ollama tag, or the model name your app lists
 # host = "http://localhost:11434"   # Jan: http://localhost:1337  LM Studio: http://localhost:1234
+# timeout_seconds = 60              # per-request cap; a hung server becomes an error, not a stuck session
+# retries = 1                       # extra attempts after connection failures (HTTP errors never retry)
 
 [stt]
 # model = "small"                   # whisper size: tiny/base/small/medium/large-v3
