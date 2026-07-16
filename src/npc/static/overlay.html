@@ -5,74 +5,226 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>npc overlay</title>
 <style>
-  /* Transparent background on purpose: drop this page straight into an OBS
-     browser source. Colors are fixed (not themed) for chroma-free overlay use. */
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: transparent;
-    font: 400 clamp(16px, 2.2vw, 24px)/1.45 system-ui, sans-serif;
-    color: #f2ecdf;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
-    padding: 1em;
+/* A Ninth World session readout: amber phosphor on ancient machined glass.
+   Page background stays transparent for OBS; the look is fixed on purpose
+   (broadcast overlay, not a themed document).
+
+   Baseline: OBS 31 browser source = Chromium 127 (verified). Everything used
+   here is at or below that per MDN BCD, and in Firefox/Safari since 2024:
+   native nesting (Cr 120 / Fx 117), oklch() + color-mix() (Cr 111 / Fx 113),
+   registered @property (Cr 85 / Fx 128), :has() (Cr 105 / Fx 121),
+   text-wrap (Cr 114), logical properties. */
+
+@property --pulse {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
+}
+
+:root {
+  --phosphor: oklch(82% 0.13 85);      /* warm amber — old readout glass    */
+  --datasphere: oklch(78% 0.11 200);   /* pale cyan — the datasphere/weird  */
+  --alert: oklch(66% 0.17 30);         /* clay red — microphone is live     */
+  --dim: color-mix(in oklch, var(--phosphor) 55%, transparent);
+  --faint: color-mix(in oklch, var(--phosphor) 26%, transparent);
+  --glass: oklch(20% 0.02 130 / 0.5);
+  --state-color: var(--dim);
+}
+
+* { margin: 0; box-sizing: border-box; }
+
+body {
+  background: transparent;
+  font-family: ui-monospace, "Cascadia Mono", "JetBrains Mono", "Fira Code", monospace;
+  font-size: clamp(15px, 2.1vw, 22px);
+  line-height: 1.55;
+  color: var(--phosphor);
+  padding: 1rem;
+}
+
+main {
+  position: relative;
+  max-inline-size: 38rem;
+  padding: 0.9em 1.2em 0.8em;
+  background: var(--glass);
+  border: 1px solid var(--faint);
+  --notch: 0.85em;                      /* chamfered plate, not a web card */
+  clip-path: polygon(var(--notch) 0, 100% 0, 100% calc(100% - var(--notch)),
+                     calc(100% - var(--notch)) 100%, 0 100%, 0 var(--notch));
+  text-shadow: 0 0 0.45em color-mix(in oklch, var(--phosphor) 40%, transparent);
+
+  /* scanline field — the 286 in the glass */
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom,
+      oklch(0% 0 0 / 0.24) 0 1px,
+      transparent 1px 3px
+    );
   }
-  #card {
-    max-width: 34em;
-    background: rgba(20, 16, 24, .72);
-    border: 1px solid rgba(242, 236, 223, .18);
-    border-radius: .6em;
-    padding: .8em 1em;
-    backdrop-filter: blur(2px);
+
+  /* slow phosphor refresh band drifting down the plate */
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -18% 0 auto;
+    block-size: 3.5em;
+    pointer-events: none;
+    background: linear-gradient(to bottom,
+      transparent, oklch(95% 0.02 95 / 0.05), transparent);
+    animation: refresh 9s linear infinite;
   }
-  #head { display: flex; align-items: center; gap: .55em; margin-bottom: .45em; }
-  #dot {
-    width: .55em; height: .55em; border-radius: 50%;
-    background: #6b7280; flex: none;
-    transition: background .15s, box-shadow .15s;
+
+  &[data-state="recording"]  { --state-color: var(--alert); }
+  &[data-state="processing"] { --state-color: var(--phosphor); }
+  &[data-state="speaking"]   { --state-color: var(--datasphere); }
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1em;
+  padding-block-end: 0.45em;
+  border-block-end: 1px solid var(--faint);
+
+  h1 {
+    font-size: 1em;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    text-wrap: balance;
   }
-  #dot.recording  { background: #ef4444; box-shadow: 0 0 .5em #ef4444; }
-  #dot.processing { background: #eab308; box-shadow: 0 0 .5em #eab308; }
-  #dot.speaking   { background: #34d399; box-shadow: 0 0 .5em #34d399; }
-  #name { font-weight: 600; letter-spacing: .02em; }
-  #player { opacity: .75; font-style: italic; min-height: 1.4em; }
-  #player:not(:empty)::before { content: "» "; opacity: .6; }
-  #reply { min-height: 1.4em; margin-top: .2em; overflow-wrap: break-word; }
-  #off { opacity: .5; font-size: .8em; margin-top: .4em; display: none; }
-  body.disconnected #off { display: block; }
+
+  p[role="status"] {
+    flex: none;
+    white-space: nowrap;
+    font-size: 0.78em;
+    letter-spacing: 0.16em;
+    color: var(--state-color);
+    text-shadow: 0 0 calc(var(--pulse) * 0.7em) var(--state-color);
+    animation: breathe 3.4s ease-in-out infinite;
+    transition: color 0.3s;
+  }
+}
+
+dl {
+  margin-block: 0.75em;
+  min-block-size: 3.2em;
+
+  dt {
+    font-size: 0.72em;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--faint);
+
+    &::before { content: "» "; }
+    &:has(+ dd:empty) { display: none; }   /* nothing said yet — show nothing */
+  }
+
+  dd {
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+
+    &:empty { display: none; }
+    & + dt { margin-block-start: 0.6em; }
+  }
+
+  #player { color: var(--dim); }
+
+  /* phosphor cursor while the reply is still streaming in */
+  main[data-streaming] & #reply::after {
+    content: "▮";
+    margin-inline-start: 0.15em;
+    animation: blink 1.1s steps(1) infinite;
+  }
+}
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  padding-block-start: 0.4em;
+  border-block-start: 1px solid var(--faint);
+  font-size: 0.68em;
+  letter-spacing: 0.22em;
+  color: var(--faint);
+
+  #link { color: var(--alert); }
+}
+
+@keyframes breathe { 50% { --pulse: 0.2; } }
+@keyframes blink   { 50% { opacity: 0; } }
+@keyframes refresh { to { inset-block-start: 118%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  main::before,
+  p[role="status"],
+  main[data-streaming] dl #reply::after { animation: none; }
+}
 </style>
 </head>
 <body>
-<div id="card">
-  <div id="head"><span id="dot"></span><span id="name">npc</span></div>
-  <div id="player"></div>
-  <div id="reply"></div>
-  <div id="off">reconnecting…</div>
-</div>
+<main data-state="idle">
+  <header>
+    <h1 id="name">npc</h1>
+    <p role="status" id="state">◌ DORMANT</p>
+  </header>
+  <dl>
+    <dt>you</dt>
+    <dd id="player"></dd>
+    <dt id="reply-label">npc</dt>
+    <dd id="reply"></dd>
+  </dl>
+  <footer>
+    <p id="session">SESSION ··</p>
+    <p id="link" hidden>LINK SEVERED · RE-ATTUNING…</p>
+  </footer>
+</main>
 <script>
 "use strict";
 const el = id => document.getElementById(id);
-let streaming = "";
+const plate = document.querySelector("main");
+const STATES = {
+  idle:       "◌ DORMANT",
+  recording:  "◉ LISTENING",
+  processing: "◈ ATTUNING",
+  speaking:   "◍ SPEAKING",
+};
+let streamed = "";
 
 function handle(event) {
   switch (event.type) {
     case "Hello":
-      if (event.npc_name) el("name").textContent = event.npc_name;
+      if (event.npc_name) {
+        el("name").textContent = event.npc_name;
+        el("reply-label").textContent = event.npc_name.split(" ")[0];
+      }
+      if (event.session_no) {
+        el("session").textContent =
+          `SESSION ${String(event.session_no).padStart(2, "0")}`;
+      }
       break;
     case "StateChanged":
-      el("dot").className = event.state;   // idle|recording|processing|speaking
+      plate.dataset.state = event.state;   // idle|recording|processing|speaking
+      el("state").textContent = STATES[event.state] ?? event.state;
       break;
     case "PlayerSpoke":
       el("player").textContent = event.text;
-      streaming = "";
+      streamed = "";
       el("reply").textContent = "";
       break;
-    case "GmNoteAdded":
-      break;                               // out-of-character — never shown
     case "NpcReplyChunk":
-      streaming += event.text;
-      el("reply").textContent = streaming; // raw stream; NpcReplied replaces it
+      streamed += event.text;
+      plate.dataset.streaming = "";
+      el("reply").textContent = streamed;  // raw feed; NpcReplied replaces it
       break;
     case "NpcReplied":
-      streaming = "";
+      streamed = "";
+      delete plate.dataset.streaming;
       el("reply").textContent = event.text;
       break;
   }
@@ -81,10 +233,10 @@ function handle(event) {
 let retry = 0;
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => { retry = 0; document.body.classList.remove("disconnected"); };
+  ws.onopen = () => { retry = 0; el("link").hidden = true; };
   ws.onmessage = m => { try { handle(JSON.parse(m.data)); } catch (e) {} };
   ws.onclose = () => {
-    document.body.classList.add("disconnected");
+    el("link").hidden = false;
     setTimeout(connect, Math.min(1000 * 2 ** retry++, 10000));
   };
 }
