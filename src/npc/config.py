@@ -25,6 +25,8 @@ class SttConfig:
     language: str = "auto"  # "auto" detects per utterance (Swedish and English both work)
     device: str = "auto"
     silence_threshold_db: float = -45.0  # clips quieter than this never reach whisper
+    vad_silence_seconds: float = 1.2  # tap mode: this much trailing silence ends a recording
+    vad_max_seconds: float = 30.0  # tap mode: hard cap even if the room never goes quiet
 
 
 @dataclass
@@ -40,6 +42,7 @@ class TtsConfig:
 @dataclass
 class HotkeyConfig:
     key: str = "KEY_SPACE"
+    mode: str = "hold"  # "hold" = push-to-talk; "tap" = tap once, silence auto-stops
     device: str = ""  # optional pin, e.g. /dev/input/by-id/usb-...-event-kbd
     grab: bool = False  # grab the device exclusively (only for a dedicated button!)
 
@@ -101,7 +104,7 @@ def load_config(campaign_dir: Path) -> Config:
                   "checkpoint_every_turns", "min_clip_seconds")
         if k in data
     }
-    return Config(
+    config = Config(
         campaign_dir=campaign_dir,
         llm=section(LlmConfig, "llm"),
         stt=section(SttConfig, "stt"),
@@ -109,3 +112,7 @@ def load_config(campaign_dir: Path) -> Config:
         hotkey=section(HotkeyConfig, "hotkey"),
         **top,
     )
+    if config.hotkey.mode not in ("hold", "tap"):
+        raise ConfigError(f'{toml_path}: hotkey.mode must be "hold" or "tap", '
+                          f"got {config.hotkey.mode!r}")
+    return config

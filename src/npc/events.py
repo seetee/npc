@@ -33,7 +33,7 @@ class StateChanged(Event):
 
 @dataclass(frozen=True, slots=True)
 class RecordingStarted(Event):
-    pass
+    auto_stop: bool = False  # True when a VAD recorder will end it on silence
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,8 +128,8 @@ def format_event(event: Event) -> str | None:
     match event:
         case StateChanged():
             return None  # overlay material — too chatty for the terminal
-        case RecordingStarted():
-            return "[recording… release to send]"
+        case RecordingStarted(auto_stop=auto):
+            return "[recording… pause to send]" if auto else "[recording… release to send]"
         case RecordingDiscarded(reason=reason):
             return f"[{reason} — discarded]"
         case HeardNothing():

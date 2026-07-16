@@ -82,6 +82,10 @@ class NPCApp:
         self.npc_name = "NPC"
         self._load_files()
 
+        if self.recorder is not None:
+            # only a VAD recorder ever fires this; harmless for push-to-talk
+            self.recorder.on_auto_stop = self.on_auto_stop
+
     # ---------- lifecycle ----------
 
     def _load_files(self) -> None:
@@ -188,7 +192,8 @@ class NPCApp:
             self._set_state_if({State.RECORDING}, State.IDLE)
             self._emit(MicrophoneError(str(e)))
             return
-        self._emit(RecordingStarted())
+        self._emit(RecordingStarted(
+            auto_stop=getattr(self.recorder, "is_auto_stop", False)))
 
     def on_ptt_release(self) -> None:
         if not self._set_state_if({State.RECORDING}, State.PROCESSING):
@@ -199,6 +204,17 @@ class NPCApp:
             self._set_state_if({State.PROCESSING}, State.IDLE)
             self._emit(MicrophoneError(str(e)))
             return
+        self._enqueue_clip(clip)
+
+    def on_auto_stop(self, clip: AudioClip) -> None:
+        """Fired by a VAD recorder (from its finalizer thread) when silence
+        ends the recording; a manual stop that won the state race makes this
+        a no-op — exactly one of the two paths enqueues the clip."""
+        if not self._set_state_if({State.RECORDING}, State.PROCESSING):
+            return
+        self._enqueue_clip(clip)
+
+    def _enqueue_clip(self, clip: AudioClip) -> None:
         if clip.duration < self.config.min_clip_seconds:
             self._set_state_if({State.PROCESSING}, State.IDLE)
             self._emit(RecordingDiscarded("too short"))

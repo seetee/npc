@@ -200,6 +200,40 @@ def test_phantom_transcript_discarded_before_llm(app):
     assert app.state is State.IDLE
 
 
+def test_auto_stop_enqueues_like_a_release(app):
+    app.on_ptt_press()
+    app.on_auto_stop(AudioClip(np.full(16000, 8000, dtype=np.int16)))
+    drain(app)
+    assert of_type(app, PlayerSpoke) == [PlayerSpoke("who are you?")]
+    assert app.state is State.IDLE
+
+
+def test_auto_stop_after_manual_release_is_a_noop(app):
+    app.on_ptt_press()
+    app.on_ptt_release()
+    app.on_auto_stop(AudioClip(np.full(16000, 8000, dtype=np.int16)))
+    drain(app)
+    assert len(of_type(app, PlayerSpoke)) == 1     # exactly one turn
+
+
+def test_too_short_auto_clip_discarded(app):
+    app.on_ptt_press()
+    app.on_auto_stop(AudioClip(np.full(800, 8000, dtype=np.int16)))  # 0.05 s
+    drain(app)
+    assert of_type(app, RecordingDiscarded) == [RecordingDiscarded("too short")]
+    assert app.state is State.IDLE
+
+
+def test_recording_started_flags_auto_stop_recorders(app):
+    from npc.events import RecordingStarted
+
+    app.recorder.is_auto_stop = True
+    app.on_ptt_press()
+    app.on_ptt_release()
+    drain(app)
+    assert of_type(app, RecordingStarted) == [RecordingStarted(auto_stop=True)]
+
+
 def test_busy_while_processing(app):
     app._state = State.PROCESSING
     app.on_ptt_press()

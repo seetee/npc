@@ -20,6 +20,8 @@
 # device = "auto"                   # auto/cpu/cuda
 # silence_threshold_db = -45        # clips quieter than this (dBFS) are discarded as silence
 #                                   # raise it (e.g. -35) if room noise triggers phantom replies
+# vad_silence_seconds = 1.2         # tap mode: this much trailing silence ends a recording
+# vad_max_seconds = 30              # tap mode: hard cap on one utterance
 
 [tts]
 # voice = "en_GB-alba-medium"       # Piper voice (Alba, British English)
@@ -27,5 +29,6 @@
 
 [hotkey]
 # key = "KEY_SPACE"                 # any evdev key name, e.g. KEY_RIGHTCTRL, KEY_F12
+# mode = "hold"                     # "hold" = push-to-talk; "tap" = tap once, silence ends it
 # device = ""                       # pin one device, e.g. "/dev/input/by-id/usb-...-event-kbd"
 # grab = false                      # true = take the device exclusively (dedicated buttons only!)

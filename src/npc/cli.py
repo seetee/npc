@@ -115,13 +115,18 @@ def cmd_run(args) -> int:
 
     transcriber = recorder = None
     if not ({"Whisper model", "Audio input", "Push-to-talk"} & failed_soft):
-        from .audio.recorder import PushToTalkRecorder
+        from .audio.recorder import PushToTalkRecorder, VadRecorder
         from .stt import WhisperTranscriber
 
         print("Loading whisper model…")
         transcriber = WhisperTranscriber(config.stt.model, config.stt.language,
                                          config.stt.device)
-        recorder = PushToTalkRecorder()
+        if config.hotkey.mode == "tap":
+            recorder = VadRecorder(threshold_db=config.stt.silence_threshold_db,
+                                   silence_seconds=config.stt.vad_silence_seconds,
+                                   max_seconds=config.stt.vad_max_seconds)
+        else:
+            recorder = PushToTalkRecorder()
     else:
         print("! voice input disabled this session (see FAILs above); /say still works")
 
@@ -137,7 +142,8 @@ def cmd_run(args) -> int:
                  speaker=speaker, on_event=print_event)
     app.start()
     print(f"\n{app.npc_name} is listening — session {app.session_no}.")
-    print(f"Hold {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
+    verb = "Tap" if config.hotkey.mode == "tap" else "Hold"
+    print(f"{verb} {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
 
     action = _run_repl(app, config, ptt_enabled=recorder is not None)
     app.shutdown(summarize=(action == "end"))
@@ -180,7 +186,8 @@ def _start_hotkey(app, config, session):
     keycode = keycode_from_name(config.hotkey.key)
     devices = find_ptt_devices(keycode, config.hotkey.device)
     typing_key = _key_types_text(config.hotkey.key) and not config.hotkey.grab
-    on_press, on_release = _ptt_callbacks(app, session, typing_key=typing_key)
+    on_press, on_release = _ptt_callbacks(app, session, typing_key=typing_key,
+                                          tap_mode=config.hotkey.mode == "tap")
     listener = PTTListener(devices, keycode, on_press, on_release,
                            grab=config.hotkey.grab)
     listener.start()
@@ -196,7 +203,7 @@ def _key_types_text(key_name: str) -> bool:
         key_name))
 
 
-def _ptt_callbacks(app, session, typing_key: bool):
+def _ptt_callbacks(app, session, typing_key: bool, tap_mode: bool = False):
     """Press/release handlers that coexist with the REPL.
 
     A hotkey that is an ordinary typing key (the default spacebar) causes two
@@ -206,8 +213,14 @@ def _ptt_callbacks(app, session, typing_key: bool):
       in the buffer;
     - holding it on an empty line types characters into the prompt — snapshot
       the buffer on press and restore it (and flush stdin) on release.
+
+    In tap mode the key toggles instead of holding: first press starts the
+    recording (silence ends it via the VAD recorder), a second press while
+    RECORDING stops it early; key release only does the terminal cleanup.
     """
     import termios
+
+    from .events import State
 
     state = {"snapshot": "", "typing": False}
 
@@ -224,13 +237,17 @@ def _ptt_callbacks(app, session, typing_key: bool):
             return
         state["typing"] = False
         state["snapshot"] = text
-        app.on_ptt_press()
+        if tap_mode and app.state is State.RECORDING:
+            app.on_ptt_release()  # second tap = stop early
+        else:
+            app.on_ptt_press()
 
     def on_release():
         if state["typing"]:
             state["typing"] = False
             return
-        app.on_ptt_release()
+        if not tap_mode:
+            app.on_ptt_release()
         try:
             termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
             pt_app = session.app

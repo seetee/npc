@@ -29,6 +29,12 @@ def test_overrides(tmp_path):
     assert config.tts.voice == "en_GB-alba-medium"
 
 
+def test_invalid_hotkey_mode_rejected(tmp_path):
+    (tmp_path / "config.toml").write_text('[hotkey]\nmode = "double-tap"\n')
+    with pytest.raises(ConfigError, match='"hold" or "tap"'):
+        load_config(tmp_path)
+
+
 def test_unknown_key_is_a_friendly_error(tmp_path):
     (tmp_path / "config.toml").write_text("[llm]\nmodell = 'oops'\n")
     with pytest.raises(ConfigError, match="valid keys"):
