@@ -89,6 +89,10 @@ def test_prompt_locks_language_even_when_challenged():
     "Oui, je parle la langue des anciens.",
     "Ich verstehe die alte Sprache sehr gut.",
     "Claro que sí, pero el conocimiento tiene su precio.",
+    # real reply captured at the table 2026-07-16 — non-Latin script is decisive
+    "はい、私には日本語ができます。なぜそう尋ねるのですか？",
+    "はい。",                                          # even a single CJK word
+    "Да, я говорю на древнем языке.",                  # Cyrillic too
 ])
 def test_foreign_replies_are_flagged(text):
     assert looks_foreign(text)

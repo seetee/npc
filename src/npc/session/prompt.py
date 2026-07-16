@@ -115,6 +115,11 @@ def looks_foreign(text: str) -> bool:
     words; two combined hits mark the reply foreign. Conservative on purpose:
     an English line quoting one foreign word passes and is merely mispronounced.
     """
+    # any letter beyond the Latin blocks (Greek, Cyrillic, CJK, kana, …) is
+    # decisive on its own — Alba can't say it, and feeding CJK to the
+    # phonemizer is asking for trouble (European diacritics stay < U+0370)
+    if any(ch.isalpha() and ord(ch) >= 0x0370 for ch in text):
+        return True
     words = re.findall(r"[^\W\d_]+", text.lower())
     non_ascii = sum(1 for w in words if not w.isascii())
     function_hits = len(_FOREIGN_FUNCTION_WORDS.intersection(words))

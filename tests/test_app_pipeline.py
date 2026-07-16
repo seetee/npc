@@ -332,6 +332,18 @@ def test_non_english_reply_is_reasked_in_english(app):
     assert of_type(app, NpcReplied)[-1].text == "Yes — I speak many tongues, traveler."
 
 
+def test_reply_that_stays_foreign_after_retry_is_never_voiced(app):
+    app.llm.replies = ["Ja, jag talar japanska.",
+                       "はい、私には日本語ができます。なぜそう尋ねるのですか？"]
+    app.handle_line("/say kan du tala japanska?")
+    drain(app)
+
+    assert len(app.llm.calls) == 2
+    assert app.speaker.spoken == []                # Alba never gets CJK text
+    assert "日本語" in of_type(app, NpcReplied)[-1].text  # but the GM sees it
+    assert app.state is State.IDLE
+
+
 def test_streaming_foreign_reply_never_reaches_tts(config):
     llm = StreamingFakeLLM(chunks=("Ja, jag talar gärna ",
                                    "ert tungomål, resenär."))

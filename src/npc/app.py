@@ -361,11 +361,13 @@ class NPCApp:
                 ]), self.npc_name)
             timings["llm"] = time.perf_counter() - t
             self._record_npc_reply(reply)
-            if self.speaker is not None and self._set_state_if({State.PROCESSING},
-                                                               State.SPEAKING):
-                t = time.perf_counter()
-                self.speaker.say(reply)
-                timings["speak"] = time.perf_counter() - t
+            if self.speaker is not None:
+                if looks_foreign(reply):  # retry failed too — never voice this
+                    self._emit(Info("[reply still not in English — shown, not spoken]"))
+                elif self._set_state_if({State.PROCESSING}, State.SPEAKING):
+                    t = time.perf_counter()
+                    self.speaker.say(reply)
+                    timings["speak"] = time.perf_counter() - t
         elif reply:  # streaming already spoke; "" = barged in before any audio
             self._record_npc_reply(reply)
         self._player_turns += 1
