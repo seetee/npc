@@ -17,6 +17,8 @@
 # model = "small"                   # whisper size: tiny/base/small/medium/large-v3
 # language = "auto"                 # "auto" understands Swedish and English; pin with "sv"/"en"
 # device = "auto"                   # auto/cpu/cuda
+# silence_threshold_db = -45        # clips quieter than this (dBFS) are discarded as silence
+#                                   # raise it (e.g. -35) if room noise triggers phantom replies
 
 [tts]
 # voice = "en_GB-alba-medium"       # Piper voice (Alba, British English)

@@ -27,6 +27,13 @@ class AudioClip:
     def to_float32(self) -> np.ndarray:
         return self.samples.astype(np.float32) / 32768.0
 
+    def dbfs(self) -> float:
+        """RMS level in dB relative to int16 full scale (0 = max, -inf = silence)."""
+        if len(self.samples) == 0:
+            return float("-inf")
+        rms = float(np.sqrt(np.mean(self.to_float32() ** 2)))
+        return 20 * float(np.log10(rms)) if rms > 0 else float("-inf")
+
 
 class Recorder(Protocol):
     on_auto_stop: Callable[[AudioClip], None] | None

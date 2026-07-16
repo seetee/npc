@@ -23,6 +23,7 @@ class SttConfig:
     model: str = "small"
     language: str = "auto"  # "auto" detects per utterance (Swedish and English both work)
     device: str = "auto"
+    silence_threshold_db: float = -45.0  # clips quieter than this never reach whisper
 
 
 @dataclass

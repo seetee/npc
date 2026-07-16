@@ -35,8 +35,10 @@ class FakeLLM:
 class FakeTranscriber:
     def __init__(self, text="who are you?"):
         self.text = text
+        self.calls = 0
 
     def transcribe(self, clip):
+        self.calls += 1
         return self.text
 
 
@@ -44,12 +46,15 @@ class FakeRecorder:
     def __init__(self, seconds=1.0):
         self.on_auto_stop = None
         self.seconds = seconds
+        self.silent = False  # True → all-zero samples (below any energy gate)
 
     def start(self):
         pass
 
     def stop(self):
-        return AudioClip(np.zeros(int(16000 * self.seconds), dtype=np.int16))
+        n = int(16000 * self.seconds)
+        value = 0 if self.silent else 8000
+        return AudioClip(np.full(n, value, dtype=np.int16))
 
 
 class FakeSpeaker:
@@ -167,6 +172,29 @@ def test_too_short_clip_discarded(app):
     drain(app)
     assert app.llm.calls == []
     assert of_type(app, RecordingDiscarded) == [RecordingDiscarded("too short")]
+    assert app.state is State.IDLE
+
+
+def test_silent_clip_never_reaches_whisper(app):
+    app.recorder.silent = True
+    app.on_ptt_press()
+    app.on_ptt_release()
+    drain(app)
+    assert app.transcriber.calls == 0              # energy gate short-circuits
+    assert app.llm.calls == []
+    assert of_type(app, RecordingDiscarded) == [RecordingDiscarded("silence")]
+    assert app.state is State.IDLE
+
+
+def test_phantom_transcript_discarded_before_llm(app):
+    app.transcriber.text = "Thanks for watching!"
+    app.on_ptt_press()
+    app.on_ptt_release()
+    drain(app)
+    assert app.transcriber.calls == 1
+    assert app.llm.calls == []
+    discarded = of_type(app, RecordingDiscarded)
+    assert len(discarded) == 1 and "hallucination" in discarded[0].reason
     assert app.state is State.IDLE
 
 

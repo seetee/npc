@@ -38,6 +38,7 @@ from .events import (
 from .session.history import ConversationHistory
 from .session.logbook import Logbook, Transcript
 from .session.prompt import build_system_prompt, extract_dialogue
+from .stt import looks_like_hallucination
 
 HELP = """\
 Voice (hold the push-to-talk key)  in-character player dialogue
@@ -275,9 +276,15 @@ class NPCApp:
                 self._queue.task_done()
 
     def _handle_utterance(self, clip: AudioClip) -> None:
+        if clip.dbfs() < self.config.stt.silence_threshold_db:
+            self._emit(RecordingDiscarded("silence"))
+            return
         text = self.transcriber.transcribe(clip)
         if not text:
             self._emit(HeardNothing())
+            return
+        if looks_like_hallucination(text):
+            self._emit(RecordingDiscarded(f"whisper hallucination {text!r}"))
             return
         self._emit(PlayerSpoke(text))
         self._respond_to_player(text)
