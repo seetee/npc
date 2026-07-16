@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>npc overlay</title>
+<style>
+  /* Transparent background on purpose: drop this page straight into an OBS
+     browser source. Colors are fixed (not themed) for chroma-free overlay use. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: transparent;
+    font: 400 clamp(16px, 2.2vw, 24px)/1.45 system-ui, sans-serif;
+    color: #f2ecdf;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .8);
+    padding: 1em;
+  }
+  #card {
+    max-width: 34em;
+    background: rgba(20, 16, 24, .72);
+    border: 1px solid rgba(242, 236, 223, .18);
+    border-radius: .6em;
+    padding: .8em 1em;
+    backdrop-filter: blur(2px);
+  }
+  #head { display: flex; align-items: center; gap: .55em; margin-bottom: .45em; }
+  #dot {
+    width: .55em; height: .55em; border-radius: 50%;
+    background: #6b7280; flex: none;
+    transition: background .15s, box-shadow .15s;
+  }
+  #dot.recording  { background: #ef4444; box-shadow: 0 0 .5em #ef4444; }
+  #dot.processing { background: #eab308; box-shadow: 0 0 .5em #eab308; }
+  #dot.speaking   { background: #34d399; box-shadow: 0 0 .5em #34d399; }
+  #name { font-weight: 600; letter-spacing: .02em; }
+  #player { opacity: .75; font-style: italic; min-height: 1.4em; }
+  #player:not(:empty)::before { content: "» "; opacity: .6; }
+  #reply { min-height: 1.4em; margin-top: .2em; overflow-wrap: break-word; }
+  #off { opacity: .5; font-size: .8em; margin-top: .4em; display: none; }
+  body.disconnected #off { display: block; }
+</style>
+</head>
+<body>
+<div id="card">
+  <div id="head"><span id="dot"></span><span id="name">npc</span></div>
+  <div id="player"></div>
+  <div id="reply"></div>
+  <div id="off">reconnecting…</div>
+</div>
+<script>
+"use strict";
+const el = id => document.getElementById(id);
+let streaming = "";
+
+function handle(event) {
+  switch (event.type) {
+    case "Hello":
+      if (event.npc_name) el("name").textContent = event.npc_name;
+      break;
+    case "StateChanged":
+      el("dot").className = event.state;   // idle|recording|processing|speaking
+      break;
+    case "PlayerSpoke":
+      el("player").textContent = event.text;
+      streaming = "";
+      el("reply").textContent = "";
+      break;
+    case "GmNoteAdded":
+      break;                               // out-of-character — never shown
+    case "NpcReplyChunk":
+      streaming += event.text;
+      el("reply").textContent = streaming; // raw stream; NpcReplied replaces it
+      break;
+    case "NpcReplied":
+      streaming = "";
+      el("reply").textContent = event.text;
+      break;
+  }
+}
+
+let retry = 0;
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { retry = 0; document.body.classList.remove("disconnected"); };
+  ws.onmessage = m => { try { handle(JSON.parse(m.data)); } catch (e) {} };
+  ws.onclose = () => {
+    document.body.classList.add("disconnected");
+    setTimeout(connect, Math.min(1000 * 2 ** retry++, 10000));
+  };
+}
+connect();
+</script>
+</body>
+</html>

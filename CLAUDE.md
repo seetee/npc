@@ -15,7 +15,10 @@ uv run pytest -m integration      # real whisper/piper/ollama smoke tests (auto-
 uv run pytest tests/test_app_pipeline.py::test_voice_turn_end_to_end   # single test
 uv run ruff check .
 uv run npc init|doctor|run <campaign-dir>     # scaffold / setup-check / play
+uv run npc doctor --fix <dir>      # also offer safe fixes (model pull, voice download); sudo fixes stay print-only
+uv run npc run <dir> --timings --overlay      # per-turn stage timings / OBS-overlay server
 uv run npc say "text" <dir>  /  npc transcribe file.wav <dir>   # debug TTS / STT
+uv run python scripts/probe_narration.py      # re-check the prompt against real Ollama after prompt/model changes
 ```
 
 ## Architecture
@@ -25,7 +28,8 @@ The pipeline is orchestrated by `src/npc/app.py` (`NPCApp`) — a state machine 
 The app never prints: it emits typed events (`events.py` — `PlayerSpoke`, `NpcReplied`, `StateChanged`, `LogbookWritten`, …) to a single `on_event` callback; the CLI renders them with `format_event`, tests assert on event objects, and a future OBS overlay/web remote subscribes to the same stream (`StateChanged` is deliberately not rendered in the terminal). Emit events outside `self._lock`; `_emit` swallows subscriber exceptions so a broken subscriber can't kill a session.
 
 Key seams (all Protocol-typed, faked in `tests/test_app_pipeline.py`):
-- `audio/recorder.py` — `Recorder` protocol; v1 `PushToTalkRecorder`. A future VAD recorder (tap to start, silence stops) implements the same protocol and fires `on_auto_stop`; nothing downstream changes.
+- `audio/recorder.py` — `Recorder` protocol; `PushToTalkRecorder` (hold) and `VadRecorder` (`[hotkey] mode = "tap"`: tap to start, trailing silence or `stt.vad_max_seconds` fires `on_auto_stop(clip)` from a finalizer thread — the sounddevice callback never closes the stream, and an internal lock guarantees at-most-once delivery). `app.on_auto_stop` reuses the RECORDING→PROCESSING CAS so exactly one of {second tap, VAD} enqueues; tap-toggle semantics live in `cli._ptt_callbacks`, not the app. The pure `SilenceTracker` is the tunable part (threshold = `stt.silence_threshold_db`).
+- `overlay.py` — `[overlay] enabled`/`npc run --overlay`: one daemon thread + private asyncio loop serving `static/overlay.html` over HTTP and broadcasting every event as JSON over `/ws`. Binds 127.0.0.1 ONLY (unauthenticated stream — LAN mode is a deliberate non-feature for now). `publish()` hops threads via `call_soon_threadsafe`; `websockets.broadcast` drops slow clients so OBS can never stall a turn; event class/field renames break external consumers.
 - `stt.py` / `tts.py` / `llm.py` — `Transcriber`, `Speaker`, and the LLM clients. `llm.py:make_llm_client` picks the backend from `[llm].backend`: native `OllamaClient` (default) or `OpenAICompatClient` for Jan/LM Studio/llama.cpp/vLLM (tested via httpx MockTransport in `test_llm.py`). `stt.py` preloads pip-installed CUDA libs and falls back to CPU if CUDA breaks; resamples non-16kHz input. Whisper hallucinates YouTube outros/subtitle credits on near-silence, so three guards protect the LLM: an energy gate in `app.py:_handle_utterance` (`AudioClip.dbfs()` vs `stt.silence_threshold_db`, skips whisper entirely), a per-segment `no_speech_prob` filter (`stt.py:join_segments`), and the `PHANTOM_PHRASES` blocklist (`looks_like_hallucination`, en+sv, fires only when the WHOLE transcript is phantom).
 
 Streaming replies (`[llm] stream = true`, the default): `chat_stream()` on both clients → `session/sentences.py:iter_sentences` regroups tokens into ≥25-char sentences → `strip_decoration` per sentence (empties skipped, so a leading `*bows*` is never spoken) → `tts.py:say_stream`, where synthesis (worker thread) runs up to 3 sentences ahead of playback (internal thread); `stop()` cancels both, so barge-in needs no special casing. History/transcript/`NpcReplied` get the whole cleaned reply AFTER the stream ends — after a barge-in, only the sentences the table heard. `NpcReplyChunk` events stream for overlays (CLI renders them as None). Connection failures retry only before the first token; a server that rejects streaming (`StreamingNotSupported`) falls back to non-streaming `chat()`.
@@ -41,6 +45,7 @@ A campaign directory (see `src/npc/templates/`) is the unit of play; `config.py`
 - In `config.toml` templates, top-level keys must stay above `[sections]` (TOML semantics).
 - `sounddevice` needs the system package `libportaudio2` on Linux.
 - Replies must always be English (Alba voice) even for Swedish input — enforced in `ROLE_FRAMING`, tested in `test_prompt.py`.
-- Replies must be voice-only: `ROLE_FRAMING` forbids narration/stage directions/assistant behavior, and `session/prompt.py:extract_dialogue` strips what small models slip through anyway (`*actions*`, `(parentheticals)`, speaker labels, quote wrapping) before the reply reaches history/transcript/TTS.
+- Replies must be voice-only: `ROLE_FRAMING` forbids narration/stage directions/assistant behavior (incl. a WRONG/RIGHT few-shot pair — 7B models need it), and `session/prompt.py:extract_dialogue` strips what small models slip through anyway (`*actions*`, `(parentheticals)`, speaker labels, quote wrapping) before the reply reaches history/transcript/TTS. When narration surrounds double-quoted speech, `_extract_quoted_dialogue` keeps only the quoted spans — the tell is terminal punctuation inside the quotes, so quoted titles (`"The Broken Crown"`) survive; the accepted false positive (quoting someone else loses framing words) is pinned in a test. Re-validate prompt changes with `scripts/probe_narration.py`.
+- `TurnCompleted` timing events are emitted every turn but rendered only via `npc run --timings` (like `StateChanged`, they're overlay material); `/status` shows last/avg turn seconds.
 
 License is AGPL-3.0-or-later — new dependencies must be compatible (Piper is GPL-3.0, fine).

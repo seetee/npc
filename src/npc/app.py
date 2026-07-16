@@ -124,6 +124,7 @@ class NPCApp:
                 ("[stt]", new.stt != self.config.stt),
                 ("[tts]", new.tts != self.config.tts),
                 ("[hotkey]", new.hotkey != self.config.hotkey),
+                ("[overlay]", new.overlay != self.config.overlay),
             ) if changed
         )
         self.history.limit = new.history_limit

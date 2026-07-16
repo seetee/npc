@@ -42,6 +42,12 @@ class TtsConfig:
 
 
 @dataclass
+class OverlayConfig:
+    enabled: bool = False  # broadcast events + serve the overlay page while running
+    port: int = 8765  # always bound to 127.0.0.1 — the event stream is unauthenticated
+
+
+@dataclass
 class HotkeyConfig:
     key: str = "KEY_SPACE"
     mode: str = "hold"  # "hold" = push-to-talk; "tap" = tap once, silence auto-stops
@@ -56,6 +62,7 @@ class Config:
     stt: SttConfig = field(default_factory=SttConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
+    overlay: OverlayConfig = field(default_factory=OverlayConfig)
     history_limit: int = 30
     logbook_sessions_in_prompt: int = 3
     checkpoint_every_turns: int = 20
@@ -112,6 +119,7 @@ def load_config(campaign_dir: Path) -> Config:
         stt=section(SttConfig, "stt"),
         tts=section(TtsConfig, "tts"),
         hotkey=section(HotkeyConfig, "hotkey"),
+        overlay=section(OverlayConfig, "overlay"),
         **top,
     )
     if config.hotkey.mode not in ("hold", "tap"):

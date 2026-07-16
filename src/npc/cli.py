@@ -145,20 +145,40 @@ def cmd_run(args) -> int:
     else:
         print("! spoken replies disabled this session (see FAILs above)")
 
+    overlay = None
+
     def on_event(event):
         print_event(event)
         if args.timings and isinstance(event, TurnCompleted):
             print(format_timings(event))
+        if overlay is not None:
+            overlay.publish(event)
 
     app = NPCApp(config, llm=llm, transcriber=transcriber, recorder=recorder,
                  speaker=speaker, on_event=on_event)
+
+    if config.overlay.enabled or args.overlay:
+        from .overlay import OverlayServer
+
+        try:
+            overlay = OverlayServer(config.overlay.port,
+                                    hello={"npc_name": app.npc_name,
+                                           "session_no": app.session_no})
+            overlay.start()
+            print(f"overlay: http://127.0.0.1:{overlay.port}")
+        except Exception as e:
+            overlay = None
+            print(f"! overlay disabled: {e}")
+
     app.start()
     print(f"\n{app.npc_name} is listening — session {app.session_no}.")
     verb = "Tap" if config.hotkey.mode == "tap" else "Hold"
     print(f"{verb} {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
 
     action = _run_repl(app, config, ptt_enabled=recorder is not None)
-    app.shutdown(summarize=(action == "end"))
+    app.shutdown(summarize=(action == "end"))  # end-of-session events still broadcast
+    if overlay is not None:
+        overlay.stop()
     print("Farewell.")
     return 0
 
@@ -295,6 +315,8 @@ def main(argv=None) -> int:
     p = add("run", cmd_run, "run the NPC for a play session")
     p.add_argument("--timings", action="store_true",
                    help="print per-stage turn timings after each reply")
+    p.add_argument("--overlay", action="store_true",
+                   help="serve the OBS/table overlay (forces [overlay] enabled)")
     p = add("doctor", cmd_doctor, "check (and set up) everything the NPC needs")
     p.add_argument("--fix", action="store_true",
                    help="offer to run the safe fixes (model pull, voice download)")

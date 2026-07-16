@@ -1,9 +1,10 @@
 """Structured events emitted by NPCApp.
 
 The app never prints. It emits Event objects to a single on_event callback;
-the terminal UI renders them with format_event(). A future subscriber — an
-OBS overlay, a web remote, a stream deck — receives the same events with
-full payloads instead of parsing bracket strings.
+the terminal UI renders them with format_event(), and the overlay
+(overlay.py) broadcasts them as JSON to WebSocket clients. External pages
+consume {"type": <class name>, ...fields} — renaming an event class or field
+is therefore a BREAKING change for overlay consumers.
 """
 
 from __future__ import annotations

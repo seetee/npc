@@ -102,6 +102,10 @@ permissions — and prints a copy-pasteable fix for anything that fails. Run it
 until everything says `PASS`. The whisper model and Piper voice download
 automatically on the first run; after that you're fully offline.
 
+`npc doctor --fix` goes one step further and offers to run the safe fixes for
+you (pull the Ollama model, download the Piper voice) after a `[y/N]` prompt.
+Anything needing sudo stays copy-paste-only.
+
 ## Creating your NPC
 
 `npc init` gives you a campaign directory of plain markdown — edit freely, no
@@ -144,6 +148,22 @@ transcript into a dated logbook entry (location, the NPC's attitude, highlights,
 open threads), and the most recent entries are fed back to it next session. The
 logbook also auto-checkpoints every 20 player turns, so a crash costs you
 nothing.
+
+Prefer tapping to holding? Set `mode = "tap"` under `[hotkey]` in
+`config.toml`: tap once to start talking and a pause (1.2 s of silence by
+default, tunable via `[stt] vad_silence_seconds`) sends the recording; a
+second tap sends it immediately.
+
+Two optional flags on `npc run`:
+
+- `--timings` prints per-stage latency after each reply
+  (`[turn 4.9s: stt 0.8s | llm 2.1s (first token 0.31s) | speak 3.2s]`);
+  `/status` always shows the last/average turn time.
+- `--overlay` (or `[overlay] enabled = true` in `config.toml`) serves a live
+  table display at `http://127.0.0.1:8765` — add it as an OBS browser source
+  or open it on a tablet facing the players. It shows the NPC's name, a
+  state light, the last player line, and the reply streaming in as it's
+  spoken. Localhost only.
 
 > **Tell your table:** everything said to the NPC is transcribed and stored
 > locally in `sessions/`, and summarized into the logbook. It never leaves the
@@ -197,6 +217,10 @@ model = "qwen2.5-7b-instruct"          # exactly as the app lists it
 (`/v1` is appended automatically if you leave it off.) `npc doctor` will show
 which models the server actually offers if the configured name doesn't match.
 The mid-session `/reload` model swap works the same as with Ollama.
+
+If the server wants an API key, set `api_key` under `[llm]` — or better,
+`export NPC_LLM_API_KEY=…`, which overrides the file so the key never sits in
+`config.toml` in plaintext.
 
 ## Languages
 

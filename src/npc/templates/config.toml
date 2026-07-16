@@ -29,6 +29,11 @@
 # voice = "en_GB-alba-medium"       # Piper voice (Alba, British English)
 # voices_dir = "~/.local/share/npc/voices"
 
+[overlay]
+# enabled = false                   # broadcast events + serve the overlay page while running
+# port = 8765                       # OBS browser source / browser: http://127.0.0.1:8765
+#                                   # (always localhost-only; `npc run --overlay` forces it on)
+
 [hotkey]
 # key = "KEY_SPACE"                 # any evdev key name, e.g. KEY_RIGHTCTRL, KEY_F12
 # mode = "hold"                     # "hold" = push-to-talk; "tap" = tap once, silence ends it

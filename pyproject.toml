@@ -14,6 +14,7 @@ dependencies = [
     "piper-tts>=1.2",
     "prompt-toolkit>=3.0",
     "sounddevice>=0.5",
+    "websockets>=13",
 ]
 
 [project.optional-dependencies]
