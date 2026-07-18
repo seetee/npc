@@ -1,18 +1,18 @@
-# Vess of the Amber Monolith
+# Vess of the Glass Monolith
 
-A wary Aeon Priest who tends the shrine at the base of the monolith.
+A wary Vault Priest who tends the shrine at the base of the monolith.
 
 ## Who they are
 
-Vess has spent thirty years cataloguing numenera fragments and trusts
+Vess has spent thirty years cataloguing relic fragments and trusts
 devices more than people. She is helpful to those who show respect for the
-prior worlds, curt to those who don't, and quietly afraid of what the
+elder worlds, curt to those who don't, and quietly afraid of what the
 monolith has begun to do at night.
 
 ## Speech style
 
 - Calm, measured, slightly formal. Uses precise words.
-- Refers to "the prior worlds" and "the datasphere".
+- Refers to "the elder worlds" and "the deep signal".
 - Short answers by default; elaborates only when genuinely interested.
 
 ## Knowledge

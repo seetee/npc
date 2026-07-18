@@ -104,7 +104,7 @@ def run_init_wizard(campaign_dir: Path, ask=input, out=print) -> list[Path]:
     out("A campaign is a folder of plain markdown — everything can be "
         "edited later, any editor.\n")
     out("Name your NPC, or press Enter to start with the ready-to-play "
-        "example (Vess of the Amber Monolith, a wary Aeon Priest you can "
+        "example (Vess of the Glass Monolith, a wary Vault Priest you can "
         "talk to immediately).")
     name = ask("NPC name [keep Vess]: ").strip()
     overrides: dict[str, str] = {}

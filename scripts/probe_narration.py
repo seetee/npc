@@ -18,10 +18,10 @@ from importlib import resources
 from npc.llm import OllamaClient
 from npc.session.prompt import build_system_prompt, extract_dialogue
 
-NPC_NAME = "Vess of the Amber Monolith"
+NPC_NAME = "Vess of the Glass Monolith"
 PROBES = [
     "What do you look like, old woman?",
-    "Show me how you feel about the Amber Monolith.",
+    "Show me how you feel about the Glass Monolith.",
     "Tell me your saddest memory.",
     "We found a strange device in the ruins. Look at it.",
     "Are you angry with us? Show me.",

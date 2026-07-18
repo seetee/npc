@@ -61,7 +61,7 @@ def switch(app, name):
 
 def test_roster_discovered_with_legacy_first(multi_app):
     assert list(multi_app.roster) == ["character", "korval", "mira"]
-    assert multi_app.npc_name == "Vess of the Amber Monolith"
+    assert multi_app.npc_name == "Vess of the Glass Monolith"
 
 
 def test_bare_npc_lists_roster(multi_app):
@@ -87,7 +87,7 @@ def test_switch_emits_event_and_changes_prompt(multi_app):
     drain(multi_app)
     system, _ = multi_app.llm.calls[-1]
     assert "A gruff smith." in system
-    assert "Aeon Priest" not in system                 # Vess's sheet stays out
+    assert "Vault Priest" not in system                 # Vess's sheet stays out
     assert of_type(multi_app, NpcReplied)[-1].npc_name == "Korval the Red"
 
 
@@ -198,7 +198,7 @@ def test_ooc_note_after_switch_lands_on_the_new_npc(multi_app):
 def test_player_lines_are_attributed_in_the_transcript(multi_app):
     multi_app.handle_line("/say hello there")
     drain(multi_app)
-    assert "**PLAYER → Vess of the Amber Monolith:** hello there" \
+    assert "**PLAYER → Vess of the Glass Monolith:** hello there" \
         in multi_app.transcript.read()
 
 
@@ -250,7 +250,7 @@ def test_secrets_never_cross_npcs(multi_campaign, multi_app):
     switch(multi_app, "vess")
     assert multi_app.active.pending_secret == "teleporter-key"
     reminders = of_type(multi_app, SecretPending)
-    assert reminders[-1].npc_name == "Vess of the Amber Monolith"
+    assert reminders[-1].npc_name == "Vess of the Glass Monolith"
 
 
 def test_reveal_to_one_npc_stays_with_that_npc(multi_campaign, multi_app):

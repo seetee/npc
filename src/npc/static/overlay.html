@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>npc overlay</title>
 <style>
-/* A Ninth World session readout: amber phosphor on ancient machined glass.
+/* A far-future session readout: amber phosphor on ancient machined glass.
    Page background stays transparent for OBS; the look is fixed on purpose
    (broadcast overlay, not a themed document).
 
@@ -28,7 +28,7 @@
    --faint is for hairlines only, never text. */
 :root {
   --phosphor: oklch(85% 0.12 85);      /* warm amber — old readout glass    */
-  --datasphere: oklch(80% 0.11 200);   /* pale cyan — the datasphere/weird  */
+  --signal: oklch(80% 0.11 200);       /* pale cyan — the deep signal/weird */
   --alert: oklch(74% 0.15 30);         /* clay red — microphone is live     */
   --dim: color-mix(in oklch, var(--phosphor) 78%, transparent);
   --label: color-mix(in oklch, var(--phosphor) 68%, transparent);
@@ -86,8 +86,8 @@ main {
 
   &[data-state="recording"]  { --state-color: var(--alert); }
   &[data-state="processing"] { --state-color: var(--phosphor); }
-  &[data-state="speaking"]   { --state-color: var(--datasphere); }
-  &[data-state="pondering"]  { --state-color: var(--datasphere); }
+  &[data-state="speaking"]   { --state-color: var(--signal); }
+  &[data-state="pondering"]  { --state-color: var(--signal); }
 }
 
 header {

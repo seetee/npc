@@ -5,11 +5,12 @@ to the NPC as background knowledge — write it from the GM's point of view.)*
 
 ## Setting
 
-The Ninth World, near the village of Embered Peaks.
+A far-future Earth littered with the relics of forgotten civilizations,
+near the village of Embered Peaks.
 
 ## Current situation
 
-The players are investigating strange lights above the Amber Monolith.
+The players are investigating strange lights above the Glass Monolith.
 
 ## What the NPC's role in the story is
 

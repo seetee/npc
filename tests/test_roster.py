@@ -141,7 +141,7 @@ def test_resolve_exact_beats_prefix():
 
 
 def test_resolve_unique_prefix_and_display_name():
-    roster = make_roster(("character", "Vess of the Amber Monolith"),
+    roster = make_roster(("character", "Vess of the Glass Monolith"),
                          ("korval", "Korval the Red"))
     assert resolve_npc(roster, "kor").stem == "korval"
     assert resolve_npc(roster, "vess of").stem == "character"

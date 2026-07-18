@@ -153,7 +153,7 @@ campaigns/mygame/
 ```
 
 The scaffolded `character.md` contains a complete example NPC (Vess, a wary
-Aeon Priest) showing the intended level of detail. The **Secrets** and **Hard
+Vault Priest) showing the intended level of detail. The **Secrets** and **Hard
 rules** sections are where you control what the NPC will and won't reveal.
 
 ### Gated secrets: the NPC checks with you first
@@ -241,10 +241,10 @@ copy one as a starting point:
   Mera Vex knows everyone on the Saltmarsh road, waters the ale of the rude,
   and holds two gated secrets about the old innkeeper's death.
   `uv run npc run examples/rusty-lantern`
-- **[The Amber Monolith](examples/amber-monolith/)** — a Ninth World
+- **[The Glass Monolith](examples/glass-monolith/)** — a far-future
   multi-NPC campaign: the wary priest Vess (with lore and secrets) and Tokk
   the scavenger, showing `/npc` switching and per-character voices.
-  `uv run npc run examples/amber-monolith`
+  `uv run npc run examples/glass-monolith`
 
 ## Playing a session
 

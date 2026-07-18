@@ -18,7 +18,7 @@ def test_piper_whisper_roundtrip(config, tmp_path):
     from npc.tts import PiperSpeaker
 
     speaker = PiperSpeaker(config.tts.voice_path)
-    samples, rate = speaker.synthesize("Hello traveler, welcome to the ninth world.")
+    samples, rate = speaker.synthesize("Hello traveler, welcome to the elder world.")
     assert len(samples) > rate * 0.5  # at least half a second of audio
 
     transcriber = WhisperTranscriber(config.stt.model, "auto", config.stt.device)

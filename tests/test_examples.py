@@ -25,7 +25,7 @@ def test_example_campaign_loads_clean(campaign):
 def test_gallery_shows_both_layouts():
     names = [p.name for p in EXAMPLES]
     assert "rusty-lantern" in names       # single legacy character.md
-    assert "amber-monolith" in names      # characters/ multi-NPC layout
+    assert "glass-monolith" in names      # characters/ multi-NPC layout
     assert any((p / "secrets.md").exists() or (p / "secrets").is_dir()
                for p in EXAMPLES)
     assert any((p / "lore").is_dir() for p in EXAMPLES)

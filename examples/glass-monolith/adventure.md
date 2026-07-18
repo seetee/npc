@@ -1,6 +1,6 @@
-# The Amber Monolith — GM background
+# The Glass Monolith — GM background
 
-Ninth World, three days from the Amber Monolith: a shrine village in its
+A far-future ruinscape, three days from the Glass Monolith: a shrine village in its
 shadow, a scavenger economy at the edge of the eastern ruins, and a hum in
 the ground that the old people say changed key last season.
 
@@ -10,4 +10,4 @@ abandoning it centuries ago. Vess knows more than she admits (see
 secrets/vess.md); Tokk has dug up something he doesn't understand and would
 very much like to sell it before it wakes up.
 
-Tone: wonder and unease. The numenera are miracles that do not care.
+Tone: wonder and unease. The relics are miracles that do not care.

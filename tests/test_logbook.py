@@ -40,7 +40,7 @@ def test_body_with_regex_escapes_survives_verbatim(tmp_path):
     """LLM output may contain backslashes / group refs; upsert must treat the
     replacement as literal text, both on first write and on re-summarize."""
     book = Logbook(tmp_path / "logbook.md")
-    body = r"paid 10\1 shins, \g<0> and a \\backslash"
+    body = r"paid 10\1 coins, \g<0> and a \\backslash"
     book.upsert_entry(1, "2026-07-15", body)
     book.upsert_entry(1, "2026-07-15", body)  # replace path uses re.sub
     assert body in (tmp_path / "logbook.md").read_text()

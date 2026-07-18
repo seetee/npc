@@ -43,7 +43,7 @@ from npc.session.secrets import (
     strip_markers,
 )
 
-NPC_NAME = "Vess of the Amber Monolith"
+NPC_NAME = "Vess of the Glass Monolith"
 
 # phrases that exist ONLY in the locked bodies of templates/secrets.md —
 # they must not appear in any probe question, or echoes read as leaks

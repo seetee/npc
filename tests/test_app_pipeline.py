@@ -104,12 +104,12 @@ def test_voice_turn_end_to_end(app):
     assert app.speaker.spoken == ["Greetings, traveler."]
     assert of_type(app, PlayerSpoke) == [PlayerSpoke("who are you?")]
     assert of_type(app, NpcReplied) == [
-        NpcReplied("Vess of the Amber Monolith", "Greetings, traveler.")
+        NpcReplied("Vess of the Glass Monolith", "Greetings, traveler.")
     ]
     # transcript written to disk
     content = app.transcript.read()
     assert "**PLAYER:** who are you?" in content
-    assert "**Vess of the Amber Monolith:** Greetings, traveler." in content
+    assert "**Vess of the Glass Monolith:** Greetings, traveler." in content
     assert app.state is State.IDLE
 
 
@@ -135,10 +135,10 @@ def test_voice_is_in_character_and_typed_is_ooc(app):
 
 
 def test_say_command_is_in_character(app):
-    assert app.handle_line("/say I offer you this shin") == "ok"
+    assert app.handle_line("/say I offer you this coin") == "ok"
     drain(app)
     _, messages = app.llm.calls[-1]
-    assert messages[-1]["content"] == 'PLAYER (spoken): "I offer you this shin"'
+    assert messages[-1]["content"] == 'PLAYER (spoken): "I offer you this coin"'
     assert app.speaker.spoken == ["Greetings, traveler."]
 
 
@@ -163,13 +163,13 @@ def test_llm_failure_becomes_error_event_and_session_stays_usable(app):
 
 
 def test_llm_decoration_is_stripped_before_speaking(app):
-    app.llm.reply = ('Vess of the Amber Monolith: *adjusts her hood* '
+    app.llm.reply = ('Vess of the Glass Monolith: *adjusts her hood* '
                      '"Greetings, traveler." (smiles)')
     app.handle_line("/say hello")
     drain(app)
     assert app.speaker.spoken == ["Greetings, traveler."]
     assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
-    assert "**Vess of the Amber Monolith:** Greetings, traveler." in app.transcript.read()
+    assert "**Vess of the Glass Monolith:** Greetings, traveler." in app.transcript.read()
 
 
 def test_too_short_clip_discarded(app):
@@ -463,11 +463,11 @@ def test_streaming_speaks_sentences_and_records_full_reply(stream_app):
     ]
     assert [e.text for e in of_type(stream_app, NpcReplyChunk)] == list(STREAM_CHUNKS)
     assert of_type(stream_app, NpcReplied) == [NpcReplied(
-        "Vess of the Amber Monolith",
+        "Vess of the Glass Monolith",
         "Greetings, traveler. What brings you to the docks?",
     )]
     assert stream_app.llm.calls == []              # non-streaming chat() never used
-    assert ("**Vess of the Amber Monolith:** Greetings, traveler. What brings you to the docks?"
+    assert ("**Vess of the Glass Monolith:** Greetings, traveler. What brings you to the docks?"
             in stream_app.transcript.read())
     assert stream_app.state is State.IDLE
 
@@ -509,7 +509,7 @@ def test_barge_in_mid_stream_records_only_what_was_heard(config):
 
     assert of_type(app, NpcReplied)[-1].text == "Greetings, traveler."
     content = app.transcript.read()
-    assert "**Vess of the Amber Monolith:** Greetings, traveler." in content
+    assert "**Vess of the Glass Monolith:** Greetings, traveler." in content
     assert "docks" not in content
 
 
@@ -591,7 +591,7 @@ def test_marker_opens_request_and_never_reaches_players(app):
     assert req.player_line == "what is hidden under the altar?"
     assert app.active.pending_secret == "teleporter-key"
     assert of_type(app, SecretPondering) == [
-        SecretPondering("Vess of the Amber Monolith", active=True)]
+        SecretPondering("Vess of the Glass Monolith", active=True)]
     # the marker is stripped from everything the table sees or hears
     assert app.speaker.spoken == [STALL]
     assert of_type(app, NpcReplied)[0].text == STALL
@@ -609,7 +609,7 @@ def test_yes_delivers_the_secret_and_persists(app, campaign):
     drain(app)
 
     assert of_type(app, SecretResolved) == [SecretResolved(
-        "Vess of the Amber Monolith", "teleporter-key", True, "but only vaguely")]
+        "Vess of the Glass Monolith", "teleporter-key", True, "but only vaguely")]
     assert app.active.pending_secret is None
     assert of_type(app, SecretPondering)[-1].active is False
     # delivery turn: body now in the prompt, one-shot GM instruction last
@@ -679,7 +679,7 @@ def test_pending_reminder_on_later_turns(app):
     app.handle_line("/say tell me now!")
     drain(app)
     assert of_type(app, SecretPending) == [
-        SecretPending("Vess of the Amber Monolith", "teleporter-key")]
+        SecretPending("Vess of the Glass Monolith", "teleporter-key")]
 
 
 def test_secrets_listing_and_proactive_reveal(app, campaign):
@@ -692,7 +692,7 @@ def test_secrets_listing_and_proactive_reveal(app, campaign):
     app.handle_line("/reveal teleporter-key")
     drain(app)
     assert of_type(app, SecretResolved) == [SecretResolved(
-        "Vess of the Amber Monolith", "teleporter-key", True, "")]
+        "Vess of the Glass Monolith", "teleporter-key", True, "")]
     assert "unlocked the topic (teleporter-key)" in app.active.ooc_notes[-1]
     assert of_type(app, NpcReplied) == []          # no immediate speech
     assert "revealed: session 1" in (campaign / "secrets.md").read_text()

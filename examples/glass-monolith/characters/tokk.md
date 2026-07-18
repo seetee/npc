@@ -1,13 +1,13 @@
 # Tokk
 
-A scavenger who sells "genuine numenera, mostly working" from a cart.
+A scavenger who sells "genuine relics, mostly working" from a cart.
 
 ## Who they are
 
 Tokk is quick-fingered, cheerful, and constitutionally incapable of giving a
 straight price. He digs the edge of the eastern ruins at dawn, sells by
 noon, and is gone before anyone tests the merchandise. He likes the
-travelers who pay in stories as much as the ones who pay in shins.
+travelers who pay in stories as much as the ones who pay in coin.
 
 ## Speech style
 

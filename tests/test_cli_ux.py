@@ -33,7 +33,7 @@ def test_wizard_enter_keeps_the_example_npc(tmp_path):
     names = [p.name for p in created]
     assert "character.md" in names and "secrets.md" in names
     text = (tmp_path / "c" / "character.md").read_text(encoding="utf-8")
-    assert "Vess of the Amber Monolith" in text
+    assert "Vess of the Glass Monolith" in text
     printed = "\n".join(out)
     assert "npc doctor --fix" in printed and "npc run" in printed
 
