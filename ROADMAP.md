@@ -28,10 +28,23 @@
   `npc run --timings`, last/avg in `/status`.
 - **`api_key`** ✓ for the OpenAI-compatible backend (`NPC_LLM_API_KEY`).
 
+### v2.1
+
+- **Multiple NPCs per campaign** ✓ — `characters/` directory, `/npc <name>`
+  switching, per-character Piper voices, strictly per-NPC memory and logbooks.
+- **GM-gated secrets** ✓ — clues in `secrets.md` the NPC only reveals after
+  asking the GM at the console (`/yes`, `/no`, `/later`, `/reveal`,
+  `/secrets`); the locked text never enters the prompt until approved, so it
+  mechanically cannot leak (`scripts/probe_secrets.py` pins the behavior).
+- **UTF-8 everywhere + guided onboarding** ✓ — `npc init` wizard, campaign-
+  aware quick-start on `npc run`, grouped `/help`, did-you-mean commands,
+  Swedish-safe streams and overlay JSON.
+- **Lore (tier 1)** ✓ — per-NPC reference documents (`lore/`, .txt/.md/.pdf)
+  injected as established fact; `[llm] num_ctx` with doctor measuring the
+  real prompt and printing the exact value to set.
+
 ## v2.x
 
-- **Multiple NPCs per campaign** — a `characters/` directory, `/npc <name>` to
-  switch, optionally a different Piper voice per character.
 - **Docs that show, not tell** — demo GIF, audio samples, a gallery of
   ready-made campaign folders, `ARCHITECTURE.md`.
 - **Release hygiene** — version tags, `CHANGELOG.md`, PyPI packaging,
@@ -43,3 +56,6 @@
   all quote-marked and caught by the sanitizer).
 - **LAN overlay binding** — a table-display mode with explicit opt-in and its
   own security thinking; the overlay deliberately binds 127.0.0.1 only today.
+- **Lore tier 2 (retrieval)** — chunk + embed big documents (Ollama
+  embeddings, offline) and inject only relevant passages; deferred until a
+  real campaign outgrows a ~16k context window.
