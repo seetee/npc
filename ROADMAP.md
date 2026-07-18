@@ -43,10 +43,14 @@
   injected as established fact; `[llm] num_ctx` with doctor measuring the
   real prompt and printing the exact value to set.
 
-## v2.x
+### v2.2
 
-- **Docs that show, not tell** — demo GIF, audio samples, a gallery of
-  ready-made campaign folders, `ARCHITECTURE.md`.
+- **LAN overlay opt-in** ✓ — `[overlay] listen` with printed tablet URL and
+  warning; beyond loopback only table-safe play events cross the network.
+- **Docs that show** ✓ — recorded demo GIF, audio sample, overlay
+  screenshot, the `examples/` campaign gallery, `ARCHITECTURE.md`.
+
+## v2.x
 - **Release hygiene** — version tags, `CHANGELOG.md`, PyPI packaging,
   `CONTRIBUTING.md`.
 - **Silero VAD upgrade** — drop-in replacement for the energy VAD inside
@@ -54,8 +58,6 @@
 - **Streaming peek-ahead narration filter** — only if the probe starts showing
   quoteless leading narration again (prompt currently holds it at ~1 in 7,
   all quote-marked and caught by the sanitizer).
-- **LAN overlay binding** — a table-display mode with explicit opt-in and its
-  own security thinking; the overlay deliberately binds 127.0.0.1 only today.
 - **Lore tier 2 (retrieval)** — chunk + embed big documents (Ollama
   embeddings, offline) and inject only relevant passages; deferred until a
   real campaign outgrows a ~16k context window.
