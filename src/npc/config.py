@@ -49,7 +49,9 @@ class TtsConfig:
 @dataclass
 class OverlayConfig:
     enabled: bool = False  # broadcast events + serve the overlay page while running
-    port: int = 8765  # always bound to 127.0.0.1 — the event stream is unauthenticated
+    port: int = 8765
+    listen: str = "127.0.0.1"  # your LAN IP or "0.0.0.0" lets table devices
+    #                            connect — unauthenticated; see README before opening
 
 
 @dataclass
@@ -138,6 +140,9 @@ def load_config(campaign_dir: Path) -> Config:
     if config.hotkey.mode not in ("hold", "tap"):
         raise ConfigError(f'{toml_path}: hotkey.mode must be "hold" or "tap", '
                           f"got {config.hotkey.mode!r}")
+    if not config.overlay.listen.strip():
+        raise ConfigError(f"{toml_path}: overlay.listen must be an address "
+                          '("127.0.0.1", your LAN IP, or "0.0.0.0")')
     ctx = config.llm.num_ctx
     if ctx is not None and (isinstance(ctx, bool) or not isinstance(ctx, int)
                             or ctx <= 0):

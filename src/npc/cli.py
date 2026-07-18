@@ -273,18 +273,20 @@ def cmd_run(args) -> int:
         print("! spoken replies disabled this session (see FAILs above)")
 
     overlay = None
+    lan_mode = not is_loopback(config.overlay.listen)
 
     def on_event(event):
         print_event(event)
         if args.timings and isinstance(event, TurnCompleted):
             print(format_timings(event))
-        if overlay is not None and not type(event).dm_only:
-            # dm_only events (secret requests, hints, ids) must never reach
-            # the table-facing websocket
-            if isinstance(event, NpcSwitched):
-                # late-connecting OBS pages get the current name in Hello
-                overlay.hello["npc_name"] = event.npc_name
-            overlay.publish(event)
+        if overlay is None or type(event).dm_only:
+            return  # dm_only (secret ids/hints) never reaches the websocket
+        if lan_mode and not type(event).table_safe:
+            return  # on the LAN only play events cross; GM console stays home
+        if isinstance(event, NpcSwitched):
+            # late-connecting OBS pages get the current name in Hello
+            overlay.hello["npc_name"] = event.npc_name
+        overlay.publish(event)
 
     app = NPCApp(config, llm=llm, transcriber=transcriber, recorder=recorder,
                  speaker=speaker, make_speaker=make_speaker, on_event=on_event)
@@ -295,9 +297,11 @@ def cmd_run(args) -> int:
         try:
             overlay = OverlayServer(config.overlay.port,
                                     hello={"npc_name": app.npc_name,
-                                           "session_no": app.session_no})
+                                           "session_no": app.session_no},
+                                    listen=config.overlay.listen)
             overlay.start()
-            print(f"overlay: http://127.0.0.1:{overlay.port}")
+            for line in overlay_announcement(config.overlay.listen, overlay.port):
+                print(line)
         except Exception as e:
             overlay = None
             print(f"! overlay disabled: {e}")
@@ -311,6 +315,40 @@ def cmd_run(args) -> int:
         overlay.stop()
     print("Farewell.")
     return 0
+
+
+def is_loopback(listen: str) -> bool:
+    host = listen.strip().lower()
+    return host in ("localhost", "::1") or host.startswith("127.")
+
+
+def lan_address(listen: str) -> str:
+    """The address table devices should type: the configured IP, or (for
+    0.0.0.0 / ::) this machine's outbound LAN address via the UDP-connect
+    trick — no packet is actually sent."""
+    if listen not in ("0.0.0.0", "::"):
+        return listen
+    import socket
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+    except OSError:
+        return socket.gethostname()
+
+
+def overlay_announcement(listen: str, port: int) -> list[str]:
+    """The overlay lines printed at session start — loopback stays terse,
+    LAN mode names the URL to type and says exactly what crosses the wire."""
+    if is_loopback(listen):
+        return [f"overlay: http://127.0.0.1:{port}"]
+    return [
+        f"overlay (LAN): http://{lan_address(listen)}:{port}   ← open on the tablet",
+        "! the overlay is visible to EVERYONE on this network, unencrypted.",
+        "! it broadcasts play events only — GM notes, secrets, and console",
+        "! output never leave this machine.",
+    ]
 
 
 def quickstart(app, config, voice_on: bool) -> str:

@@ -84,3 +84,14 @@ def test_num_ctx_parses_and_validates(tmp_path):
                                           encoding="utf-8")
     with pytest.raises(ConfigError, match="num_ctx must be a positive"):
         load_config(tmp_path)
+
+
+def test_overlay_listen_parses_and_rejects_empty(tmp_path):
+    (tmp_path / "config.toml").write_text('[overlay]\nlisten = "0.0.0.0"\n',
+                                          encoding="utf-8")
+    assert load_config(tmp_path).overlay.listen == "0.0.0.0"
+
+    (tmp_path / "config.toml").write_text('[overlay]\nlisten = "  "\n',
+                                          encoding="utf-8")
+    with pytest.raises(ConfigError, match="overlay.listen"):
+        load_config(tmp_path)

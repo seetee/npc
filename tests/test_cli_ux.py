@@ -134,3 +134,26 @@ def test_quickstart_lore_line_only_when_present(campaign):
     app = app_for(campaign)
     text = quickstart(app, config, voice_on=True)
     assert "~500 words of reference loaded" in text
+
+
+def test_is_loopback_truth_table():
+    from npc.cli import is_loopback
+
+    for host in ("127.0.0.1", "127.0.0.53", "localhost", "LOCALHOST", "::1"):
+        assert is_loopback(host), host
+    for host in ("0.0.0.0", "192.168.1.23", "10.0.0.5", "::"):
+        assert not is_loopback(host), host
+
+
+def test_overlay_announcement_lines():
+    from npc.cli import overlay_announcement
+
+    assert overlay_announcement("127.0.0.1", 8765) == \
+        ["overlay: http://127.0.0.1:8765"]
+    lan = overlay_announcement("192.168.1.23", 8765)
+    assert lan[0].startswith("overlay (LAN): http://192.168.1.23:8765")
+    assert any("EVERYONE on this network" in line for line in lan)
+    assert any("never leave this machine" in line for line in lan)
+    # 0.0.0.0 resolves to a concrete address for the tablet, never 0.0.0.0
+    wild = overlay_announcement("0.0.0.0", 8765)
+    assert "0.0.0.0" not in wild[0]

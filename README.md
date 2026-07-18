@@ -7,6 +7,13 @@
 **Hold a button, talk to an NPC, and it talks back — in character, out loud,
 with no cloud in sight.**
 
+![Demo: a spoken exchange with an NPC, including a GM-gated secret reveal](docs/demo.gif)
+
+🔊 *Hear the voice: [docs/samples/vess-greeting.mp3](docs/samples/vess-greeting.mp3)* ·
+🖥️ *[The table overlay](docs/overlay.png)* ·
+🎲 *Try it now: `uv run npc run examples/rusty-lantern` — see the
+[gallery](#example-campaigns)*
+
 `npc` is a terminal program for game masters running tabletop RPGs like
 [Numenera](https://numenera.com). You describe an NPC in a markdown file, start
 a session, and hand your players a voice: hold the push-to-talk key, speak as a
@@ -225,6 +232,20 @@ korval = "en_GB-northern_english_male-medium"   # characters/korval.md
 original `character.md` keeps working unchanged alongside (or instead of)
 `characters/`.
 
+### Example campaigns
+
+Two complete campaigns ship in [`examples/`](examples/) — play them as-is, or
+copy one as a starting point:
+
+- **[The Rusty Lantern](examples/rusty-lantern/)** — a classic-fantasy inn.
+  Mera Vex knows everyone on the Saltmarsh road, waters the ale of the rude,
+  and holds two gated secrets about the old innkeeper's death.
+  `uv run npc run examples/rusty-lantern`
+- **[The Amber Monolith](examples/amber-monolith/)** — a Ninth World
+  multi-NPC campaign: the wary priest Vess (with lore and secrets) and Tokk
+  the scavenger, showing `/npc` switching and per-character voices.
+  `uv run npc run examples/amber-monolith`
+
 ## Playing a session
 
 ```bash
@@ -268,9 +289,25 @@ Two optional flags on `npc run`:
   table display at `http://127.0.0.1:8765` — add it as an OBS browser source
   or open it in a browser on the same machine (e.g. a second monitor facing
   the players). It shows the NPC's name, a state light, the last player line,
-  and the reply streaming in as it's spoken. Deliberately localhost-only —
-  the event stream is unauthenticated, so it never listens on the network; a
-  separate tablet can't reach it (a LAN opt-in is on the roadmap).
+  and the reply streaming in as it's spoken.
+
+### Overlay on a tablet (LAN)
+
+By default the overlay listens on this machine only. To put it on a tablet or
+phone on the table's Wi-Fi, opt in explicitly in `config.toml`:
+
+```toml
+[overlay]
+enabled = true
+listen = "0.0.0.0"     # or your machine's LAN IP
+```
+
+`npc run` then prints the exact URL to type on the tablet, plus a warning.
+Know what you're opening: the stream is **unauthenticated and unencrypted**,
+so anyone on that network can watch it. In LAN mode only play events are
+broadcast — the player's line, the NPC's reply, state changes. GM notes,
+`/status`, errors, and everything about secrets (even their existence) never
+leave the machine, on any setting.
 
 > **Tell your table:** everything said to the NPC is transcribed and stored
 > locally in `sessions/`, and summarized into the logbook. It never leaves the
@@ -368,11 +405,11 @@ uv run npc say "test" campaigns/mygame            # debug: TTS only
 uv run npc transcribe clip.wav campaigns/mygame   # debug: STT only
 ```
 
-The pipeline (`src/npc/app.py`) is a small state machine
-(`IDLE → RECORDING → PROCESSING → SPEAKING`) with every stage behind a
-Protocol — recorder, transcriber, LLM, speaker — so the full loop is tested
-with fakes and no hardware. The recorder seam exists for the planned v2 mode:
-press once to start, voice-activity detection stops automatically.
+The full design — pipeline, threads, the event bus, and the five guarantees
+(offline, per-NPC isolation, unleakable secrets, English lock, crash-safe
+writes) — is written up in [ARCHITECTURE.md](ARCHITECTURE.md). Every stage
+sits behind a Protocol, so the whole loop is tested with fakes: no GPU,
+microphone, or LLM server needed for the test suite.
 
 ## License
 

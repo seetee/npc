@@ -28,6 +28,10 @@ class Event:
     # DM-eyes-only: never published to the overlay websocket (cli.on_event
     # gates on this) — secret ids and hints must not reach the table screen
     dm_only: ClassVar[bool] = False
+    # published even when the overlay listens beyond localhost; everything
+    # not marked table_safe is GM-console material (notes, status, errors)
+    # that must stay on this machine — see the block at the end of this file
+    table_safe: ClassVar[bool] = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +204,18 @@ class SecretPondering(Event):
 class Info(Event):
     """Free-text output with no structured payload (help text, usage hints)."""
     message: str
+
+
+# The overlay exposure contract, tier 2 (tier 1 is dm_only above): when the
+# overlay listens beyond localhost, ONLY these events cross the network.
+# Assigned in one block rather than per class so the whole table-facing
+# surface is reviewable at a glance — think before adding to this list.
+for _cls in (StateChanged, RecordingStarted, RecordingDiscarded, HeardNothing,
+             PlayerSpoke, NpcReplyChunk, NpcReplied, NpcSwitched, Busy,
+             MicrophoneError, VoiceUnavailable, TurnCompleted, SessionEnding,
+             SecretPondering):
+    _cls.table_safe = True
+del _cls
 
 
 def format_event(event: Event) -> str | None:

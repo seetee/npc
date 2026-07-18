@@ -1,10 +1,12 @@
 """Local WebSocket event broadcast plus the bundled overlay page.
 
 `npc run --overlay` (or `[overlay] enabled = true`) starts OverlayServer.
-It binds 127.0.0.1 ONLY — the event stream is unauthenticated, so it must
-never reach the LAN. An OBS browser source (or any browser) opens
-http://127.0.0.1:<port>/ for the bundled page, which connects to
-ws://…/ws and renders the session live.
+It binds 127.0.0.1 by default; `[overlay] listen` widens it to a LAN address
+as an explicit opt-in — the stream is unauthenticated and plaintext, so
+cli.py then publishes only `table_safe` events (GM notes, status, and every
+dm_only secret event stay on this machine). An OBS browser source (or any
+browser) opens http://<listen>:<port>/ for the bundled page, which connects
+to ws://…/ws and renders the session live.
 
 Thread story: one daemon thread runs a private asyncio loop. publish() is
 called from the app's worker/hotkey/main threads and hops onto the loop via
@@ -35,8 +37,10 @@ def event_to_json(event: Event) -> str:
 
 
 class OverlayServer:
-    def __init__(self, port: int = 8765, hello: dict | None = None):
+    def __init__(self, port: int = 8765, hello: dict | None = None,
+                 listen: str = "127.0.0.1"):
         self.port = port  # updated to the actual port after start() (0 = ephemeral)
+        self.listen = listen  # LAN exposure is opt-in; cli.py gates what's sent
         self.hello = hello or {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop_future: asyncio.Future | None = None
@@ -92,7 +96,7 @@ class OverlayServer:
 
         self._loop = asyncio.get_running_loop()
         self._stop_future = self._loop.create_future()
-        async with serve(self._handler, "127.0.0.1", self.port,
+        async with serve(self._handler, self.listen, self.port,
                          process_request=self._process_request) as server:
             self.port = server.sockets[0].getsockname()[1]
             self._ready.set()

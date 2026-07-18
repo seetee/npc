@@ -1,0 +1,9 @@
+# Amber Monolith example — a multi-NPC campaign (characters/*.md). Switch at
+# the table with /npc vess and /npc tokk.
+
+[llm]
+# num_ctx = 8192                    # headroom for Vess's lore file
+
+[tts.voices]
+# give Tokk his own voice once it's downloaded (npc doctor --fix offers to):
+# tokk = "en_GB-northern_english_male-medium"

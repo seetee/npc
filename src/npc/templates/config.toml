@@ -39,7 +39,9 @@
 [overlay]
 # enabled = false                   # broadcast events + serve the overlay page while running
 # port = 8765                       # OBS browser source / browser: http://127.0.0.1:8765
-#                                   # (always localhost-only; `npc run --overlay` forces it on)
+# listen = "127.0.0.1"              # "0.0.0.0" (or your LAN IP) lets a table tablet connect —
+#                                   # unencrypted + visible to the whole network; LAN mode sends
+#                                   # play events only (GM notes & secrets never leave the machine)
 
 [hotkey]
 # key = "KEY_SPACE"                 # any evdev key name, e.g. KEY_RIGHTCTRL, KEY_F12

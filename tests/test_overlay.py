@@ -101,3 +101,45 @@ def test_event_json_keeps_utf8_readable():
     payload = event_to_json(NpcReplied("Vess", "Hertigen är begravd vid fyren…"))
     assert "Hertigen är begravd vid fyren…" in payload
     assert "\\u" not in payload
+
+
+def test_table_safe_tier_is_the_lan_contract():
+    """Only table_safe events cross the network in LAN mode — GM console
+    material must stay on the GM's machine."""
+    from npc.events import (
+        Busy,
+        ConfigReloaded,
+        ErrorOccurred,
+        GmNoteAdded,
+        HeardNothing,
+        Info,
+        LogbookWritten,
+        MicrophoneError,
+        NpcReplyChunk,
+        RecordingDiscarded,
+        RecordingStarted,
+        SecretPondering,
+        SecretRevealRequested,
+        SessionEnding,
+        StatusReport,
+        VoiceUnavailable,
+    )
+
+    table = (StateChanged, RecordingStarted, RecordingDiscarded, HeardNothing,
+             NpcReplied, NpcReplyChunk, NpcSwitched, Busy, MicrophoneError,
+             VoiceUnavailable, TurnCompleted, SessionEnding, SecretPondering)
+    for cls in table:
+        assert cls.table_safe is True, cls.__name__
+    for cls in (GmNoteAdded, Info, StatusReport, ConfigReloaded,
+                ErrorOccurred, LogbookWritten, SecretRevealRequested):
+        assert cls.table_safe is False, cls.__name__
+
+
+def test_lan_bind_reachable(unused_port_or_zero=0):
+    server = OverlayServer(port=0, hello={"npc_name": "V"}, listen="0.0.0.0")
+    server.start()
+    try:
+        response = httpx.get(f"http://127.0.0.1:{server.port}/", timeout=5)
+        assert response.status_code == 200
+    finally:
+        server.stop()
