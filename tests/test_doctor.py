@@ -101,3 +101,41 @@ def test_missing_secrets_file_is_not_checked(tmp_path):
 
     (tmp_path / "character.md").write_text("# Vess\n")
     assert npc_secrets_checks(Config(campaign_dir=tmp_path)) == []
+
+
+def test_lore_check_counts_and_budget(tmp_path):
+    from npc.doctor import npc_lore_checks
+
+    (tmp_path / "character.md").write_text("# Vess\n", encoding="utf-8")
+    lore = tmp_path / "lore"
+    lore.mkdir()
+    (lore / "small.txt").write_text("The river forks twice.", encoding="utf-8")
+    config = Config(campaign_dir=tmp_path)
+    checks = npc_lore_checks(config)
+    assert [c.name for c in checks] == ["Lore (character)"]
+    assert checks[0].ok and "1 file(s)" in checks[0].detail
+
+    (lore / "big.txt").write_text("fact " * 20000, encoding="utf-8")
+    checks = npc_lore_checks(config)
+    budget = [c for c in checks if c.name == "Context budget (character)"]
+    assert len(budget) == 1 and not budget[0].ok and not budget[0].hard
+    assert "num_ctx = 32768" in budget[0].fix
+
+    config.llm.num_ctx = 32768                      # following the advice
+    assert not [c for c in npc_lore_checks(config)
+                if c.name.startswith("Context budget")]
+
+
+def test_lore_check_flags_thin_pdf(tmp_path):
+    from test_lore import make_pdf
+
+    from npc.doctor import npc_lore_checks
+
+    (tmp_path / "character.md").write_text("# Vess\n", encoding="utf-8")
+    lore = tmp_path / "lore"
+    lore.mkdir()
+    (lore / "thin.pdf").write_bytes(make_pdf("tiny"))
+    checks = npc_lore_checks(Config(campaign_dir=tmp_path))
+    thin = [c for c in checks if c.name == "Lore (character)"]
+    assert len(thin) == 1 and not thin[0].ok
+    assert "scanned/image PDF" in thin[0].detail

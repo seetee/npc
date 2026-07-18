@@ -153,3 +153,18 @@ def test_english_replies_are_not_flagged(text):
 def test_pure_stage_direction_falls_back_to_plain_text():
     # nothing speakable survives — better an odd line than dead air at the table
     assert extract_dialogue("*stares at you in silence*", "Vess") == "stares at you in silence"
+
+
+def test_lore_block_sits_between_sheet_and_secrets():
+    from npc.session.lore import LoreFile
+
+    prompt = build_system_prompt(
+        "CHARSHEET", "ADV", "", [], secrets=sheet(),
+        lore=[LoreFile("guilds.md", "Nine guilds rule the docks.", 5)])
+    order = ["CHARSHEET", "Reference knowledge", "Nine guilds rule the docks.",
+             "Knowledge you may now share", "Locked knowledge", "ADV"]
+    positions = [prompt.index(p) for p in order]
+    assert positions == sorted(positions)
+    # absent when there is none
+    assert "Reference knowledge" not in build_system_prompt("X", "", "", [],
+                                                            lore=[])

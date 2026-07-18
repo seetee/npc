@@ -121,3 +121,16 @@ def test_init_campaign_overrides(tmp_path):
     init_campaign(tmp_path, {"character.md": "# Custom\n"})
     assert (tmp_path / "character.md").read_text(encoding="utf-8") == "# Custom\n"
     assert "Vess" in (tmp_path / "adventure.md").read_text(encoding="utf-8")
+
+
+def test_quickstart_lore_line_only_when_present(campaign):
+    config = load_config(campaign)
+    app = app_for(campaign)
+    assert "lore" not in quickstart(app, config, voice_on=True)
+
+    lore = campaign / "lore"
+    lore.mkdir()
+    (lore / "region.txt").write_text("word " * 500, encoding="utf-8")
+    app = app_for(campaign)
+    text = quickstart(app, config, voice_on=True)
+    assert "~500 words of reference loaded" in text

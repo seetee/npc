@@ -68,3 +68,19 @@ def test_voice_path_expands_user(tmp_path):
     config = load_config(tmp_path)
     assert "~" not in str(config.tts.voice_path)
     assert config.tts.voice_path.name == "en_GB-alba-medium.onnx"
+
+
+def test_num_ctx_parses_and_validates(tmp_path):
+    (tmp_path / "config.toml").write_text("[llm]\nnum_ctx = 8192\n",
+                                          encoding="utf-8")
+    assert load_config(tmp_path).llm.num_ctx == 8192
+
+    (tmp_path / "config.toml").write_text("[llm]\nnum_ctx = -1\n",
+                                          encoding="utf-8")
+    with pytest.raises(ConfigError, match="num_ctx must be a positive"):
+        load_config(tmp_path)
+
+    (tmp_path / "config.toml").write_text("[llm]\nnum_ctx = true\n",
+                                          encoding="utf-8")
+    with pytest.raises(ConfigError, match="num_ctx must be a positive"):
+        load_config(tmp_path)

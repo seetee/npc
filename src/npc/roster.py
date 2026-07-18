@@ -16,6 +16,7 @@ from pathlib import Path
 from .config import Config
 from .session.history import ConversationHistory
 from .session.logbook import Logbook
+from .session.lore import LoreFile, load_lore
 from .session.secrets import SecretsSheet
 
 
@@ -25,6 +26,7 @@ class CharacterFile:
     path: Path
     logbook_path: Path
     secrets_path: Path
+    lore_dir: Path
     legacy: bool  # the campaign-root character.md (keeps using logbook.md)
 
 
@@ -37,7 +39,8 @@ def discover_character_files(campaign_dir: Path) -> list[CharacterFile]:
     if legacy.exists():
         found.append(CharacterFile("character", legacy,
                                    campaign_dir / "logbook.md",
-                                   campaign_dir / "secrets.md", legacy=True))
+                                   campaign_dir / "secrets.md",
+                                   campaign_dir / "lore", legacy=True))
     characters_dir = campaign_dir / "characters"
     if characters_dir.is_dir():
         for path in sorted(characters_dir.glob("*.md")):
@@ -46,7 +49,8 @@ def discover_character_files(campaign_dir: Path) -> list[CharacterFile]:
             found.append(CharacterFile(
                 path.stem, path,
                 campaign_dir / "logbooks" / f"{path.stem}.md",
-                campaign_dir / "secrets" / f"{path.stem}.md", legacy=False))
+                campaign_dir / "secrets" / f"{path.stem}.md",
+                campaign_dir / "lore" / path.stem, legacy=False))
     return found
 
 
@@ -78,17 +82,22 @@ class CharacterSlot:
     secrets_error: str | None = None  # parse failure; the app surfaces it
     pending_secret: str | None = None  # id awaiting the GM's /yes or /no
     denied_secrets: set[str] = field(default_factory=set)  # /no'd this session
+    lore_dir: Path | None = None
+    lore: list[LoreFile] = field(default_factory=list)
+    lore_errors: list[str] = field(default_factory=list)  # app surfaces these
 
     def refresh(self, config: Config) -> None:
         """Re-read the character file (/reload). Conversation state is
-        deliberately preserved — only text, name, voice, and secrets are
-        replaced. A broken secrets file keeps the old sheet and records the
-        error instead of crashing the session."""
+        deliberately preserved — only text, name, voice, secrets, and lore
+        are replaced. A broken secrets file keeps the old sheet and records
+        the error instead of crashing the session."""
         self.character = self.path.read_text(encoding="utf-8")
         self.name = read_display_name(self.character, self.stem)
         self.voice = config.tts.voices.get(self.stem)
         self.secrets, self.secrets_error = _load_sheet(self.secrets_path,
                                                        self.secrets)
+        if self.lore_dir is not None:
+            self.lore, self.lore_errors = load_lore(self.lore_dir)
 
 
 def _load_sheet(path: Path | None,
@@ -106,6 +115,7 @@ def _load_sheet(path: Path | None,
 def load_slot(ref: CharacterFile, config: Config) -> CharacterSlot:
     text = ref.path.read_text(encoding="utf-8")
     secrets, secrets_error = _load_sheet(ref.secrets_path, SecretsSheet())
+    lore, lore_errors = load_lore(ref.lore_dir)
     return CharacterSlot(
         stem=ref.stem,
         path=ref.path,
@@ -117,6 +127,9 @@ def load_slot(ref: CharacterFile, config: Config) -> CharacterSlot:
         secrets_path=ref.secrets_path,
         secrets=secrets,
         secrets_error=secrets_error,
+        lore_dir=ref.lore_dir,
+        lore=lore,
+        lore_errors=lore_errors,
     )
 
 

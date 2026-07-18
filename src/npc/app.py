@@ -49,6 +49,7 @@ from .events import (
 from .llm import StreamingNotSupported
 from .roster import CharacterSlot, discover_character_files, load_slot, render_turns
 from .session.logbook import Transcript
+from .session.lore import estimate_tokens, suggest_num_ctx
 from .session.prompt import (
     build_system_prompt,
     extract_dialogue,
@@ -122,6 +123,7 @@ class NPCApp:
         self._worker: threading.Thread | None = None
         self._player_turns = 0  # campaign-global; drives checkpoint cadence
         self._silence_hinted = False
+        self._ctx_warned = False
         self._last_turn: TurnCompleted | None = None
         self._turn_totals: deque[float] = deque(maxlen=20)
 
@@ -180,6 +182,10 @@ class NPCApp:
                 self._emit(SecretNote(
                     f"[{slot.name}: secrets file ignored — {slot.secrets_error}]"))
                 slot.secrets_error = None
+            for lore_error in slot.lore_errors:
+                self._emit(ErrorOccurred(
+                    f"{slot.name}: lore file skipped — {lore_error}"))
+            slot.lore_errors = []
         gone = self.roster.keys() - {ref.stem for ref in refs}
         if gone:
             self._emit(Info(f"[character files removed: {', '.join(sorted(gone))} "
@@ -202,6 +208,9 @@ class NPCApp:
         if new.llm.model != self.llm.model:
             self.llm.model = new.llm.model
             applied.append(f"LLM model → {new.llm.model}")
+        if new.llm.num_ctx != getattr(self.llm, "num_ctx", None):  # per-request → live
+            self.llm.num_ctx = new.llm.num_ctx
+            applied.append(f"context window → {new.llm.num_ctx or 'server default'}")
         restart_needed = tuple(
             name for name, changed in (
                 ("llm.backend", new.llm.backend != self.config.llm.backend),
@@ -453,6 +462,7 @@ class NPCApp:
             slot.ooc_notes,
             secrets=slot.secrets,
             denied=slot.denied_secrets,
+            lore=slot.lore,
         )
 
     def _respond_to_player(self, text: str, stt_seconds: float | None = None) -> None:
@@ -464,6 +474,7 @@ class NPCApp:
         self.transcript.append_turn(self._player_tag(slot), text)
         system = self._system_prompt(slot)
         messages = slot.history.as_messages()
+        self._warn_if_over_budget(system, messages)
 
         timings: dict[str, float] = {}
         requested = self._reply_turn(slot, system, messages, timings, text)
@@ -487,6 +498,26 @@ class NPCApp:
         if (self.config.checkpoint_every_turns > 0
                 and self._player_turns % self.config.checkpoint_every_turns == 0):
             self._write_logbook_entries("checkpoint")
+
+    def _warn_if_over_budget(self, system: str,
+                             messages: list[dict[str, str]]) -> None:
+        """One-time hint when the prompt outgrows the context window — Ollama
+        silently drops part of an oversized prompt (typically the NPC's
+        instructions), which looks like the NPC 'forgetting who it is'."""
+        if self._ctx_warned or self.config.llm.backend != "ollama":
+            return
+        used = (estimate_tokens(system)
+                + sum(estimate_tokens(m["content"]) for m in messages)
+                + 512)  # reply headroom
+        budget = self.config.llm.num_ctx or 4096
+        if used <= budget:
+            return
+        self._ctx_warned = True
+        self._emit(Info(
+            f"[prompt ≈ {used:,} tokens but the context window is ~{budget:,} "
+            "— the server will silently drop part of it (usually the NPC's "
+            f"instructions). Set num_ctx = {suggest_num_ctx(used)} under "
+            "[llm] in config.toml]"))
 
     def _reply_turn(self, slot: CharacterSlot, system: str,
                     messages: list[dict[str, str]], timings: dict[str, float],

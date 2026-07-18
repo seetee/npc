@@ -107,6 +107,7 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
     ))
     checks.extend(npc_voice_checks(config))
     checks.extend(npc_secrets_checks(config))
+    checks.extend(npc_lore_checks(config))
 
     # 5. Audio devices
     try:
@@ -216,6 +217,60 @@ def npc_secrets_checks(config: Config) -> list[CheckResult]:
             f"Secrets ({ref.stem})", True,
             detail=f"{locked} locked, {revealed} revealed",
         ))
+    return checks
+
+
+def npc_lore_checks(config: Config) -> list[CheckResult]:
+    """Lore files load cleanly AND the resulting prompt fits the context
+    window — an oversized prompt is silently truncated by Ollama, which
+    plays like the NPC forgetting its instructions. All soft."""
+    from .roster import discover_character_files, load_slot
+    from .session.lore import estimate_tokens, suggest_num_ctx
+    from .session.prompt import build_system_prompt
+
+    checks: list[CheckResult] = []
+    adventure = (config.adventure_file.read_text(encoding="utf-8")
+                 if config.adventure_file.exists() else "")
+    for ref in discover_character_files(config.campaign_dir):
+        slot = load_slot(ref, config)
+        for error in slot.lore_errors:
+            checks.append(CheckResult(
+                f"Lore ({ref.stem})", False, detail=error,
+                fix="fix or remove the file — .txt/.md are the most reliable",
+            ))
+        if slot.lore:
+            words = sum(f.words for f in slot.lore)
+            tokens = sum(estimate_tokens(f.text) for f in slot.lore)
+            thin = [f.name for f in slot.lore
+                    if f.pages and f.words / f.pages < 20]
+            if thin:
+                checks.append(CheckResult(
+                    f"Lore ({ref.stem})", False,
+                    detail=f"{', '.join(thin)}: extracted very little text — "
+                           "scanned/image PDF?",
+                    fix="convert it to .txt for reliable knowledge",
+                ))
+            else:
+                checks.append(CheckResult(
+                    f"Lore ({ref.stem})", True,
+                    detail=f"{len(slot.lore)} file(s), ~{words:,} words "
+                           f"(~{tokens:,} tokens)",
+                ))
+        if config.llm.backend == "ollama":
+            system = build_system_prompt(
+                slot.character, adventure,
+                slot.logbook.tail(config.logbook_sessions_in_prompt),
+                [], secrets=slot.secrets, lore=slot.lore)
+            used = estimate_tokens(system) + 1500  # history + reply allowance
+            budget = config.llm.num_ctx or 4096
+            if used > budget:
+                checks.append(CheckResult(
+                    f"Context budget ({ref.stem})", False,
+                    detail=f"prompt ≈ {used:,} tokens, window ~{budget:,} — "
+                           "Ollama will silently truncate",
+                    fix=f"set num_ctx = {suggest_num_ctx(used)} under [llm] "
+                        "in config.toml (larger windows use more VRAM)",
+                ))
     return checks
 
 

@@ -139,6 +139,7 @@ campaigns/mygame/
 │                   # secrets, hard rules. First "# heading" = the NPC's name.
 ├── adventure.md    # your campaign background, from the GM's point of view
 ├── secrets.md      # GM-gated clues: the NPC asks YOU before revealing these
+├── lore/           # reference docs (.txt/.md/.pdf) the NPC knows deeply
 ├── logbook.md      # session summaries — written by the LLM, editable by you
 ├── config.toml     # models, voice, hotkey (all optional, defaults included)
 └── sessions/       # raw per-session transcripts, appended turn by turn
@@ -184,6 +185,26 @@ thing the NPC can match a question against, since it never sees the secret
 itself. The scaffolded `secrets.md` documents the format; multi-NPC campaigns
 use one file per character in `secrets/<name>.md`. Nothing about a secret —
 not even its id — is ever sent to the table overlay.
+
+### Encyclopedic knowledge (lore files)
+
+Give an NPC deep, reliable knowledge of a topic by dropping reference
+documents into `lore/` — `.txt`, `.md`, or `.pdf`. The contents are injected
+into the NPC's prompt as established fact: it relies on them when answering
+and admits ignorance in character when they don't cover something. Files at
+the root of `lore/` belong to the campaign's `character.md` NPC; in multi-NPC
+campaigns each character reads `lore/<name>/` — knowledge is as strictly
+per-NPC as memory is.
+
+Mind the context window: documents share the prompt with everything else, so
+attaching more than a page or two means raising `num_ctx` under `[llm]` in
+`config.toml` (e.g. `num_ctx = 16384` — roughly 8–10k words of lore on a
+12 GB GPU with a 7B model). Don't guess: `npc doctor` measures your actual
+prompt and prints the value to set, and the session warns you once if the
+prompt outgrows the window. PDFs are extracted as text — fine for prose,
+unreliable for two-column rulebooks and tables; doctor flags PDFs that
+extract suspiciously little (scanned pages), and converting to `.txt` is
+always the safer choice.
 
 ### Multiple NPCs
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .lore import LoreFile, lore_block
 from .secrets import SecretsSheet, locked_block, revealed_block
 
 ROLE_FRAMING = """\
@@ -49,9 +50,15 @@ def build_system_prompt(
     ooc_notes: list[str],
     secrets: SecretsSheet | None = None,
     denied: set[str] = frozenset(),
+    lore: list[LoreFile] | None = None,
 ) -> str:
     parts = [ROLE_FRAMING]
     parts.append("# Your character sheet\n\n" + character.strip())
+    if lore:
+        # right after the sheet: sheet + lore change only on /reload, so the
+        # longest stable prefix stays in Ollama's KV cache; the blocks that
+        # change mid-session (secrets, logbook, OOC notes) come after
+        parts.append(lore_block(lore))
     if secrets is not None:
         # revealed bodies first, then the gate: hints only, NEVER bodies —
         # the model cannot leak details it has never seen. Denied topics are

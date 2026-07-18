@@ -54,6 +54,7 @@ class _ChatClient:
     host: str = ""
     timeout_seconds: float = 60.0
     retries: int = 1
+    num_ctx: int | None = None  # Ollama only; others manage context server-side
     _server_hint = "is it running?"
 
     def chat(self, system: str, messages: list[dict[str, str]]) -> str:
@@ -137,16 +138,21 @@ class OllamaClient(_ChatClient):
     _server_hint = "is Ollama running? (`ollama serve`, check with `ollama ps`)"
 
     def __init__(self, host: str, model: str, timeout_seconds: float = 60.0,
-                 retries: int = 1, transport=None):
+                 retries: int = 1, num_ctx: int | None = None, transport=None):
         import ollama
 
         self.host = host
         self.model = model
         self.timeout_seconds = timeout_seconds
         self.retries = retries
+        self.num_ctx = num_ctx  # context window; None = the server's default
         # extra kwargs are forwarded to the underlying httpx.Client
         self._client = ollama.Client(host=host, timeout=timeout_seconds,
                                      transport=transport)
+
+    def _options(self) -> dict | None:
+        # summaries flow through chat() too, so they get the window as well
+        return {"num_ctx": self.num_ctx} if self.num_ctx else None
 
     def _chat(self, system: str, messages: list[dict[str, str]]) -> str:
         import ollama
@@ -155,6 +161,7 @@ class OllamaClient(_ChatClient):
             response = self._client.chat(
                 model=self.model,
                 messages=[{"role": "system", "content": system}, *messages],
+                options=self._options(),
             )
         except ollama.ResponseError as e:
             raise self._response_error(e) from e
@@ -167,6 +174,7 @@ class OllamaClient(_ChatClient):
             parts = self._client.chat(
                 model=self.model,
                 messages=[{"role": "system", "content": system}, *messages],
+                options=self._options(),
                 stream=True,
             )
             for part in parts:
@@ -275,7 +283,8 @@ def make_llm_client(llm_config) -> _ChatClient:
     backend = _BACKEND_ALIASES.get(llm_config.backend.lower().strip())
     if backend == "ollama":
         return OllamaClient(llm_config.host, llm_config.model,
-                            llm_config.timeout_seconds, llm_config.retries)
+                            llm_config.timeout_seconds, llm_config.retries,
+                            num_ctx=llm_config.num_ctx)
     if backend == "openai-compatible":
         return OpenAICompatClient(llm_config.host, llm_config.model,
                                   llm_config.timeout_seconds, llm_config.retries,

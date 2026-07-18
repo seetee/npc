@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=1.26",
     "ollama>=0.5",
     "piper-tts>=1.2",
+    "pypdf>=5",
     "prompt-toolkit>=3.0",
     "sounddevice>=0.5",
     "websockets>=13",

@@ -262,3 +262,41 @@ def test_factory_backends():
 def test_factory_rejects_unknown_backend():
     with pytest.raises(ConfigError, match="unknown llm backend"):
         make_llm_client(LlmConfig(backend="skynet"))
+
+
+def test_ollama_num_ctx_in_options_when_set():
+    seen = {}
+
+    def handler(request):
+        seen["path"] = request.url.path
+        seen["json"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "message": {"role": "assistant", "content": "hi"}, "done": True})
+
+    client = OllamaClient("http://localhost:11434", "m", num_ctx=16384,
+                          transport=httpx.MockTransport(handler))
+    client.chat("S", [])
+    assert seen["path"] == "/api/chat"
+    assert seen["json"]["options"] == {"num_ctx": 16384}
+
+
+def test_ollama_no_options_when_num_ctx_unset():
+    seen = {}
+
+    def handler(request):
+        seen["json"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "message": {"role": "assistant", "content": "hi"}, "done": True})
+
+    client = OllamaClient("http://localhost:11434", "m",
+                          transport=httpx.MockTransport(handler))
+    client.chat("S", [])
+    assert not seen["json"].get("options")
+
+
+def test_make_llm_client_passes_num_ctx():
+    client = make_llm_client(LlmConfig(num_ctx=8192))
+    assert isinstance(client, OllamaClient) and client.num_ctx == 8192
+    # openai backend simply ignores it — context is server-side there
+    client = make_llm_client(LlmConfig(backend="openai", num_ctx=8192))
+    assert isinstance(client, OpenAICompatClient)

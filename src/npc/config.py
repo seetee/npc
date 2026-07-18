@@ -19,6 +19,7 @@ class LlmConfig:
     retries: int = 1  # extra attempts after connection-level failures (never after HTTP errors)
     stream: bool = True  # speak sentence-by-sentence while the reply generates
     api_key: str = ""  # OpenAI-compatible servers only; NPC_LLM_API_KEY env var overrides
+    num_ctx: int | None = None  # Ollama context window; raise when attaching lore
 
 
 @dataclass
@@ -137,6 +138,11 @@ def load_config(campaign_dir: Path) -> Config:
     if config.hotkey.mode not in ("hold", "tap"):
         raise ConfigError(f'{toml_path}: hotkey.mode must be "hold" or "tap", '
                           f"got {config.hotkey.mode!r}")
+    ctx = config.llm.num_ctx
+    if ctx is not None and (isinstance(ctx, bool) or not isinstance(ctx, int)
+                            or ctx <= 0):
+        raise ConfigError(f"{toml_path}: llm.num_ctx must be a positive "
+                          f"integer (e.g. num_ctx = 8192), got {ctx!r}")
     for key, value in config.tts.voices.items():
         if not isinstance(value, str):
             raise ConfigError(f"{toml_path}: [tts.voices] entries must be "

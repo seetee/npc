@@ -776,3 +776,43 @@ def test_silence_hint_shown_once_per_session(app):
     assert len(of_type(app, RecordingDiscarded)) == 2   # event stream stable
     hints = [e for e in of_type(app, Info) if "noise floor" in e.message]
     assert len(hints) == 1                              # micro-copy only once
+
+
+def test_lore_reaches_prompt_and_budget_warning_fires_once(config, campaign):
+    from npc.events import Info
+
+    lore_dir = campaign / "lore"
+    lore_dir.mkdir()
+    (lore_dir / "big.txt").write_text("fact " * 20000, encoding="utf-8")
+    events = []
+    app = NPCApp(config, llm=FakeLLM(), speaker=FakeSpeaker(),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say hello")
+    app.handle_line("/say again")
+    drain(app)
+    app._queue.put(None)
+
+    assert "Reference knowledge" in app.llm.calls[0][0]
+    assert "fact fact" in app.llm.calls[0][0]
+    warnings = [e for e in of_type(app, Info) if "context window" in e.message]
+    assert len(warnings) == 1                       # once per session
+    assert "num_ctx = 32768" in warnings[0].message
+
+
+def test_no_budget_warning_for_openai_backend(config, campaign):
+    from npc.events import Info
+
+    lore_dir = campaign / "lore"
+    lore_dir.mkdir()
+    (lore_dir / "big.txt").write_text("fact " * 20000, encoding="utf-8")
+    config.llm.backend = "openai"
+    events = []
+    app = NPCApp(config, llm=FakeLLM(), on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say hello")
+    drain(app)
+    app._queue.put(None)
+    assert not [e for e in of_type(app, Info) if "context window" in e.message]

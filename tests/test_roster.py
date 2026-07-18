@@ -159,3 +159,31 @@ def test_render_turns_matches_transcript_shape():
     assert render_turns(turns) == (
         "**PLAYER:** who are you?\n\n**Vess:** A keeper of secrets.\n\n"
         "**GM:** be more hostile")
+
+
+def test_lore_dirs_and_loading(tmp_path):
+    write(tmp_path / "character.md", "# Vess\n")
+    write(tmp_path / "characters" / "korval.md", "# Korval\n")
+    write(tmp_path / "lore" / "region.txt", "The river forks twice.")
+    write(tmp_path / "lore" / "korval" / "smithing.md", "Star-iron sings.")
+    legacy, korval = discover_character_files(tmp_path)
+    assert legacy.lore_dir == tmp_path / "lore"
+    assert korval.lore_dir == tmp_path / "lore" / "korval"
+
+    config = Config(campaign_dir=tmp_path)
+    vess = load_slot(legacy, config)
+    # root files only — the korval/ subdirectory is not Vess's lore
+    assert [f.name for f in vess.lore] == ["region.txt"]
+    smith = load_slot(korval, config)
+    assert [f.name for f in smith.lore] == ["smithing.md"]
+    assert smith.lore[0].text == "Star-iron sings."
+
+
+def test_refresh_rereads_lore(tmp_path):
+    write(tmp_path / "character.md", "# Vess\n")
+    config = Config(campaign_dir=tmp_path)
+    slot = load_slot(discover_character_files(tmp_path)[0], config)
+    assert slot.lore == []
+    write(tmp_path / "lore" / "new.txt", "Fresh knowledge.")
+    slot.refresh(config)
+    assert [f.name for f in slot.lore] == ["new.txt"]

@@ -267,3 +267,21 @@ def test_reveal_to_one_npc_stays_with_that_npc(multi_campaign, multi_app):
     drain(multi_app)
     assert "altar stone" not in multi_app.llm.calls[-1][0]
     assert "teleporter" not in multi_app.llm.calls[-1][0]
+
+
+def test_lore_is_strictly_per_npc(multi_campaign, multi_app):
+    lore_dir = multi_campaign / "lore" / "korval"
+    lore_dir.mkdir(parents=True)
+    (lore_dir / "smithing.txt").write_text(
+        "Star-iron must be quenched in brine.", encoding="utf-8")
+    multi_app.handle_line("/reload")
+
+    switch(multi_app, "korval")
+    multi_app.handle_line("/say how do you quench star-iron?")
+    drain(multi_app)
+    assert "quenched in brine" in multi_app.llm.calls[-1][0]
+
+    switch(multi_app, "mira")
+    multi_app.handle_line("/say what do you know about smithing?")
+    drain(multi_app)
+    assert "quenched in brine" not in multi_app.llm.calls[-1][0]

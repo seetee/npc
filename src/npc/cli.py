@@ -140,7 +140,7 @@ def _print_created(campaign_dir: Path, created: list[Path], out=print) -> None:
     out(f"""
 Next:
   1. Flesh out character.md and adventure.md — the richer, the better the play
-  2. Add gated clues to secrets.md (the file explains the format)
+  2. Add gated clues to secrets.md, reference docs (txt/md/pdf) to lore/
   3. uv run npc doctor --fix {where}    checks LLM, mic, voice; offers fixes
   4. uv run npc run {where}             play — /help at the gm> prompt""")
 
@@ -335,6 +335,10 @@ def quickstart(app, config, voice_on: bool) -> str:
         clue = "clue" if locked == 1 else "clues"
         lines.append(f"  /secrets          {locked} gated {clue} loaded — "
                      "you approve every reveal")
+    lore_words = sum(f.words for f in app.active.lore)
+    if lore_words:
+        lines.append(f"  lore              ~{lore_words:,} words of reference "
+                     f"loaded for {app.npc_name}")
     lines.append("  /help             all commands · /end saves the session "
                  "on exit")
     return "\n".join(lines)
