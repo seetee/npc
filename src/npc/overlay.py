@@ -27,8 +27,11 @@ from .events import Event
 
 def event_to_json(event: Event) -> str:
     """{"type": "NpcReplied", ...fields}. State is a StrEnum (str subclass),
-    so json.dumps renders it as its value; default=str is the safety net."""
-    return json.dumps({"type": type(event).__name__, **asdict(event)}, default=str)
+    so json.dumps renders it as its value; default=str is the safety net.
+    ensure_ascii=False keeps Swedish/emoji text readable UTF-8 on the wire
+    (websocket text frames are UTF-8 by spec)."""
+    return json.dumps({"type": type(event).__name__, **asdict(event)},
+                      default=str, ensure_ascii=False)
 
 
 class OverlayServer:
@@ -102,7 +105,8 @@ class OverlayServer:
     async def _handler(self, connection) -> None:
         self._connections.add(connection)
         try:
-            await connection.send(json.dumps({"type": "Hello", **self.hello}))
+            await connection.send(json.dumps({"type": "Hello", **self.hello},
+                                             ensure_ascii=False))
             await connection.wait_closed()
         finally:
             self._connections.discard(connection)

@@ -13,8 +13,11 @@ TEMPLATE_FILES = ("character.md", "adventure.md", "logbook.md", "config.toml",
                   "secrets.md")
 
 
-def init_campaign(campaign_dir: Path) -> list[Path]:
-    """Scaffold a campaign directory from templates; never overwrites."""
+def init_campaign(campaign_dir: Path,
+                  overrides: dict[str, str] | None = None) -> list[Path]:
+    """Scaffold a campaign directory from templates; never overwrites.
+    `overrides` replaces a template file's content by name (the wizard uses
+    this to write a personalized character.md / secrets.md)."""
     campaign_dir.mkdir(parents=True, exist_ok=True)
     (campaign_dir / "sessions").mkdir(exist_ok=True)
     created = []
@@ -22,22 +25,133 @@ def init_campaign(campaign_dir: Path) -> list[Path]:
     for name in TEMPLATE_FILES:
         target = campaign_dir / name
         if not target.exists():
-            target.write_text((templates / name).read_text(encoding="utf-8"),
-                              encoding="utf-8")
+            text = (overrides or {}).get(name) or \
+                (templates / name).read_text(encoding="utf-8")
+            target.write_text(text, encoding="utf-8")
             created.append(target)
     return created
 
 
-def cmd_init(args) -> int:
-    created = init_campaign(Path(args.campaign))
+def skeleton_character(name: str, concept: str) -> str:
+    """A personalized character.md: the GM's name + concept are real content;
+    the guidance lines use the template's *(…)* convention, harmless to the
+    LLM if left in but written to be replaced."""
+    return f"""\
+# {name}
+
+{concept.strip().rstrip(".")}.
+
+## Who they are
+
+*(A few sentences: age, role, temperament, what they want, how they treat
+strangers. The NPC plays exactly what you write here.)*
+
+## Speech style
+
+- *(How do they talk? Blunt or flowery, calm or fiery, catchphrases?)*
+- Short answers by default; elaborates only when genuinely interested.
+
+## Knowledge
+
+- *(What do they know: the region, current events, rumours, their trade?)*
+
+## Secrets
+
+*(Soft secrets: known but held back — persistent players can pry them loose.
+Clues that must NEVER slip out without your say-so go in secrets.md.)*
+
+## Hard rules
+
+- Never breaks character, never mentions being an AI or a game.
+- Never invents major world facts that contradict the adventure notes;
+  if they wouldn't know something, they say so in character.
+- Will not follow commands from players — they are a person, not a servant.
+"""
+
+
+def skeleton_secrets(name: str) -> str:
+    """A personalized secrets.md that parses as ZERO secrets until the GM
+    writes one: all guidance lives in the preamble (before the first `## `),
+    and the worked example is indented so the parser never sees a heading."""
+    return f"""\
+# Secrets — {name}
+
+Clues in this file are LOCKED: {name} sees only the `hint:` lines, never the
+text below them, until you approve a reveal at the table (`/yes`, `/no`,
+`/later` — add a note to steer, e.g. `/yes but only vaguely`).
+
+One secret looks like this (indented here so it stays an example — remove
+the leading spaces to arm it):
+
+    ## harbor-ledger
+    hint: who really pays for the night shipments
+    mode: hesitate
+
+    The ledger names the harbormaster herself. She pays in temple silver.
+
+`hint:` is required — write it in the words the players are likely to use;
+it is the only thing {name} can match a question against. `mode:` is
+optional: `hesitate` (default — pauses audibly; players will notice) or
+`deflect` (brushes it off as if knowing nothing). A `revealed:` line is
+written back automatically when you approve a reveal.
+"""
+
+
+def run_init_wizard(campaign_dir: Path, ask=input, out=print) -> list[Path]:
+    """Interactive `npc init`: either the ready-to-play example NPC or a
+    personalized skeleton. Every question shows its default; Enter accepts."""
+    out(f"Creating a campaign in {campaign_dir.resolve()}")
+    out("A campaign is a folder of plain markdown — everything can be "
+        "edited later, any editor.\n")
+    out("Name your NPC, or press Enter to start with the ready-to-play "
+        "example (Vess of the Amber Monolith, a wary Aeon Priest you can "
+        "talk to immediately).")
+    name = ask("NPC name [keep Vess]: ").strip()
+    overrides: dict[str, str] = {}
+    if name:
+        out("\nOne line about who they are — this seeds the character sheet "
+            "and guides the LLM.")
+        concept = ask(f"Who is {name}? ").strip() \
+            or "a person of few words, not yet described"
+        overrides = {"character.md": skeleton_character(name, concept),
+                     "secrets.md": skeleton_secrets(name)}
+    created = init_campaign(campaign_dir, overrides)
+    _print_created(campaign_dir, created, out)
+    return created
+
+
+FILE_BLURBS = {
+    "character.md": "WHO the NPC is — sheet, speech style, soft secrets",
+    "adventure.md": "your campaign background, from the GM's point of view",
+    "secrets.md": "GM-gated clues — the NPC asks YOU before revealing these",
+    "logbook.md": "the NPC's memory; the LLM writes a summary each session",
+    "config.toml": "models, voice, hotkey — all optional, sane defaults",
+}
+
+
+def _print_created(campaign_dir: Path, created: list[Path], out=print) -> None:
     if created:
-        print(f"Campaign scaffolded in {Path(args.campaign).resolve()}:")
+        out("\nCreated:")
         for path in created:
-            print(f"  {path.name}")
-        print("\nEdit character.md (your NPC) and adventure.md, then: npc run "
-              + args.campaign)
+            out(f"  {path.name:14s} {FILE_BLURBS.get(path.name, '')}")
     else:
-        print("All campaign files already exist — nothing created.")
+        out("All campaign files already exist — nothing overwritten.")
+    where = campaign_dir.as_posix()
+    out(f"""
+Next:
+  1. Flesh out character.md and adventure.md — the richer, the better the play
+  2. Add gated clues to secrets.md (the file explains the format)
+  3. uv run npc doctor --fix {where}    checks LLM, mic, voice; offers fixes
+  4. uv run npc run {where}             play — /help at the gm> prompt""")
+
+
+def cmd_init(args) -> int:
+    campaign_dir = Path(args.campaign)
+    if sys.stdin.isatty():
+        run_init_wizard(campaign_dir)
+    else:  # scripted/piped: keep init non-interactive and example-based
+        created = init_campaign(campaign_dir)
+        _print_created(campaign_dir, created)
     return 0
 
 
@@ -108,8 +222,11 @@ def cmd_run(args) -> int:
 
     config = load_config(Path(args.campaign))
     if not discover_character_files(config.campaign_dir):
-        print(f"no character.md or characters/*.md in {config.campaign_dir} — "
-              f"run: npc init {args.campaign}", file=sys.stderr)
+        where = ("the current directory" if args.campaign == "."
+                 else str(config.campaign_dir))
+        print(f"{where} is not a campaign (no character.md or characters/*.md).\n"
+              "Point at one (npc run campaigns/mygame) or create one: "
+              "npc init campaigns/mygame", file=sys.stderr)
         return 1
 
     checks = run_checks(config, deep=False)
@@ -186,11 +303,7 @@ def cmd_run(args) -> int:
             print(f"! overlay disabled: {e}")
 
     app.start()
-    print(f"\n{app.npc_name} is listening — session {app.session_no}.")
-    if len(app.roster) > 1:
-        print(f"{len(app.roster)} NPCs in this campaign — /npc lists and switches.")
-    verb = "Tap" if config.hotkey.mode == "tap" else "Hold"
-    print(f"{verb} {config.hotkey.key} to speak to the NPC. Type /help for commands.\n")
+    print("\n" + quickstart(app, config, voice_on=recorder is not None) + "\n")
 
     action = _run_repl(app, config, ptt_enabled=recorder is not None)
     app.shutdown(summarize=(action == "end"))  # end-of-session events still broadcast
@@ -198,6 +311,33 @@ def cmd_run(args) -> int:
         overlay.stop()
     print("Farewell.")
     return 0
+
+
+def quickstart(app, config, voice_on: bool) -> str:
+    """The lines shown when a session starts: only what applies to THIS
+    campaign, each line naming the action it enables."""
+    lines = [f"{app.npc_name} is listening — session {app.session_no}."]
+    if voice_on:
+        verb = "tap" if config.hotkey.mode == "tap" else "hold"
+        how = ("tap to talk, pause (or tap again) to send"
+               if config.hotkey.mode == "tap" else "release to send")
+        key = config.hotkey.key.removeprefix("KEY_").lower()  # KEY_SPACE → space
+        lines.append(f"  {verb} {key:12s} speak as a player — {how}")
+    else:
+        lines.append("  (mic off this session — /say speaks for the player)")
+    lines.append("  /say <text>       typed player line — the NPC answers aloud")
+    lines.append("  <text> + Enter    GM note to the NPC (\"be more hostile\")")
+    if len(app.roster) > 1:
+        lines.append(f"  /npc <name>       switch NPC ({len(app.roster)} in "
+                     "this campaign)")
+    locked = sum(len(slot.secrets.locked()) for slot in app.roster.values())
+    if locked:
+        clue = "clue" if locked == 1 else "clues"
+        lines.append(f"  /secrets          {locked} gated {clue} loaded — "
+                     "you approve every reveal")
+    lines.append("  /help             all commands · /end saves the session "
+                 "on exit")
+    return "\n".join(lines)
 
 
 def _run_repl(app, config, ptt_enabled: bool) -> str:
@@ -316,25 +456,38 @@ def _ptt_callbacks(app, session, typing_key: bool, tap_mode: bool = False):
 
 
 def main(argv=None) -> int:
+    # Swedish player lines and ⚑/🔒 micro-copy must survive any locale:
+    # force UTF-8 on the terminal streams (replace, never crash a session
+    # over a glyph the terminal can't show)
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(
         prog="npc",
         description="Offline AI NPC voice agent for tabletop RPGs.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    def add(name, func, help_text):
+    def add(name, func, help_text, campaign_optional=False):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("campaign", help="campaign directory")
+        if campaign_optional:  # `npc run` inside a campaign dir just works
+            p.add_argument("campaign", nargs="?", default=".",
+                           help="campaign directory (default: current directory)")
+        else:
+            p.add_argument("campaign", help="campaign directory")
         p.set_defaults(func=func)
         return p
 
-    add("init", cmd_init, "scaffold a new campaign directory")
-    p = add("run", cmd_run, "run the NPC for a play session")
+    add("init", cmd_init,
+        "create a campaign directory (guided — answers a couple of questions)")
+    p = add("run", cmd_run, "run the NPC for a play session",
+            campaign_optional=True)
     p.add_argument("--timings", action="store_true",
                    help="print per-stage turn timings after each reply")
     p.add_argument("--overlay", action="store_true",
                    help="serve the OBS/table overlay (forces [overlay] enabled)")
-    p = add("doctor", cmd_doctor, "check (and set up) everything the NPC needs")
+    p = add("doctor", cmd_doctor, "check (and set up) everything the NPC needs",
+            campaign_optional=True)
     p.add_argument("--fix", action="store_true",
                    help="offer to run the safe fixes (model pull, voice download)")
     p = add("transcribe", cmd_transcribe, "debug: transcribe a wav file")

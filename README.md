@@ -128,8 +128,10 @@ Anything needing sudo stays copy-paste-only.
 
 ## Creating your NPC
 
-`npc init` gives you a campaign directory of plain markdown — edit freely, no
-special syntax:
+`npc init campaigns/mygame` walks you through it: press Enter to start with
+the ready-to-play example NPC (Vess), or type a name and a one-line concept
+to get a personalized skeleton to flesh out. Either way you end up with a
+campaign directory of plain markdown — edit freely, no special syntax:
 
 ```
 campaigns/mygame/

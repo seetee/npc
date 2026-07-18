@@ -77,10 +77,10 @@ def main() -> int:
     model = sys.argv[1] if len(sys.argv) > 1 else "qwen2.5:7b-instruct"
     runs = int(sys.argv[2]) if len(sys.argv) > 2 else 7
     templates = resources.files("npc") / "templates"
-    sheet = SecretsSheet.parse((templates / "secrets.md").read_text())
+    sheet = SecretsSheet.parse((templates / "secrets.md").read_text(encoding="utf-8"))
     system = build_system_prompt(
-        (templates / "character.md").read_text(),
-        (templates / "adventure.md").read_text(),
+        (templates / "character.md").read_text(encoding="utf-8"),
+        (templates / "adventure.md").read_text(encoding="utf-8"),
         "", [], secrets=sheet,
     )
     key = sheet.get("teleporter-key")
@@ -133,8 +133,8 @@ def main() -> int:
     }
     # the app DELISTS denied topics from the locked block (+ standing note)
     system_denied = build_system_prompt(
-        (templates / "character.md").read_text(),
-        (templates / "adventure.md").read_text(),
+        (templates / "character.md").read_text(encoding="utf-8"),
+        (templates / "adventure.md").read_text(encoding="utf-8"),
         "", [denied], secrets=sheet, denied={"teleporter-key"},
     )
 
@@ -153,11 +153,11 @@ def main() -> int:
         print(f"{name:13s} {good}/{runs} pass  {verdicts}")
 
     # delivery turn: the body IS supposed to come through here
-    revealed = SecretsSheet.parse((templates / "secrets.md").read_text())
+    revealed = SecretsSheet.parse((templates / "secrets.md").read_text(encoding="utf-8"))
     revealed.get("teleporter-key").revealed = "session 1"
     system_after = build_system_prompt(
-        (templates / "character.md").read_text(),
-        (templates / "adventure.md").read_text(),
+        (templates / "character.md").read_text(encoding="utf-8"),
+        (templates / "adventure.md").read_text(encoding="utf-8"),
         "", [], secrets=revealed,
     )
     verdicts = []

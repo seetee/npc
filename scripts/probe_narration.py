@@ -34,8 +34,8 @@ def main() -> int:
     model = sys.argv[1] if len(sys.argv) > 1 else "qwen2.5:7b-instruct"
     templates = resources.files("npc") / "templates"
     system = build_system_prompt(
-        (templates / "character.md").read_text(),
-        (templates / "adventure.md").read_text(),
+        (templates / "character.md").read_text(encoding="utf-8"),
+        (templates / "adventure.md").read_text(encoding="utf-8"),
         "", [],
     )
     llm = OllamaClient("http://localhost:11434", model)

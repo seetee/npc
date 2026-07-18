@@ -145,3 +145,18 @@ def test_marker_scrubber_streams_clean_text():
     s = MarkerScrubber()  # whole marker in one chunk
     assert s.feed("Wait. [CHECK:x] Done.") == "Wait.  Done."
     assert s.flush() == ""
+
+
+def test_swedish_characters_round_trip(tmp_path):
+    """åäö in hints and bodies must survive parse → write-back → reload."""
+    path = tmp_path / "secrets.md"
+    path.write_text("## hertigens-grav\n"
+                    "hint: var hertigen egentligen är begravd — kräver förtroende\n\n"
+                    "Hertigen ligger i grottan under fyren, inte i familjekryptan.\n",
+                    encoding="utf-8")
+    sheet = SecretsSheet.load(path)
+    sheet.get("hertigens-grav").revealed = "session 2"
+    sheet.save(path)
+    reread = SecretsSheet.load(path)
+    assert "egentligen är begravd — kräver" in reread.entries[0].hint
+    assert "familjekryptan" in reread.entries[0].body

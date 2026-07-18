@@ -94,3 +94,10 @@ def test_secret_pondering_serializes_content_free():
 
     data = json.loads(event_to_json(SecretPondering("Vess", active=True)))
     assert data == {"type": "SecretPondering", "npc_name": "Vess", "active": True}
+
+
+def test_event_json_keeps_utf8_readable():
+    """Swedish text crosses the websocket as UTF-8, not \\u-escapes."""
+    payload = event_to_json(NpcReplied("Vess", "Hertigen är begravd vid fyren…"))
+    assert "Hertigen är begravd vid fyren…" in payload
+    assert "\\u" not in payload

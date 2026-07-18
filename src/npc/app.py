@@ -73,20 +73,31 @@ class _NotEnglish(Exception):
     the stream before any audio plays and let the non-streaming path re-ask."""
 
 HELP = """\
-Voice (hold the push-to-talk key)  in-character player dialogue
-<typed text>                       out-of-character instruction to the LLM
-/say <text>                        typed in-character player line
-/npc [name]                        list NPCs / switch who you're talking to
-/yes [note] · /no [note]           answer a pending secret-reveal request
-/later                             dismiss the request without deciding
-/secrets                           list the active NPC's secrets and status
-/reveal <id>                       unlock a secret without being asked
-/save                              summarize session into the logbook now
-/reload                            re-read character.md / adventure.md / config.toml
-/status                            show state, model, session info
-/end                               summarize into logbook and exit
-/quit                              exit WITHOUT saving a summary
-/help                              this text"""
+Talking
+  voice (push-to-talk key)  in-character player dialogue — the NPC answers aloud
+  <typed text> + Enter      out-of-character GM instruction ("be more hostile")
+  /say <text>               typed in-character player line (no mic needed)
+  /npc [name]               list NPCs / switch who you're talking to
+
+Secrets (gated clues from secrets.md — the NPC asks before revealing)
+  /yes [note]               approve the pending reveal; the note steers HOW
+                            ("/yes but only vaguely")
+  /no [note]                refuse — hidden for the rest of this session;
+                            the note steers the cover story ("/no she lies")
+  /later                    dismiss without deciding; it may come up again
+  /secrets                  this NPC's secrets and their status
+  /reveal <id>              unlock one yourself; the NPC raises it naturally
+
+Session
+  /save                     write the session summary to the logbook now
+  /reload                   pick up edits to character/adventure/secrets/config
+  /status                   state, model, session number, turn timings
+  /end                      summarize into the logbook and exit
+  /quit                     exit WITHOUT saving a summary
+  /help                     this text"""
+
+COMMANDS = ("/say", "/npc", "/yes", "/no", "/later", "/secrets", "/reveal",
+            "/save", "/reload", "/status", "/help", "/end", "/quit")
 
 
 class NPCApp:
@@ -110,6 +121,7 @@ class NPCApp:
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
         self._player_turns = 0  # campaign-global; drives checkpoint cadence
+        self._silence_hinted = False
         self._last_turn: TurnCompleted | None = None
         self._turn_totals: deque[float] = deque(maxlen=20)
 
@@ -367,7 +379,13 @@ class NPCApp:
             case "/quit":
                 return "quit"
             case _:
-                self._emit(Info(f"[unknown command {cmd} — /help lists commands]"))
+                import difflib
+
+                close = difflib.get_close_matches(cmd, COMMANDS, n=1)
+                did_you_mean = f" — did you mean {close[0]}?" if close else ""
+                self._emit(Info(f"[unknown command {cmd}{did_you_mean} "
+                                "(/help lists all; a line without / is a GM "
+                                "note to the NPC)]"))
         return "ok"
 
     # ---------- worker thread ----------
@@ -408,6 +426,12 @@ class NPCApp:
     def _handle_utterance(self, clip: AudioClip) -> None:
         if clip.dbfs() < self.config.stt.silence_threshold_db:
             self._emit(RecordingDiscarded("silence"))
+            if not self._silence_hinted:  # once per session, not every miss
+                self._silence_hinted = True
+                self._emit(Info(
+                    "[nothing rose above the noise floor — speak while the key "
+                    "is held; if real speech keeps landing here, lower "
+                    "stt.silence_threshold_db (e.g. -55) in config.toml]"))
             return
         t0 = time.perf_counter()
         text = self.transcriber.transcribe(clip)

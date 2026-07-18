@@ -763,3 +763,16 @@ def test_later_dismisses_without_denying(app):
     drain(app)
     assert any("no secret is awaiting" in n.message
                for n in of_type(app, SecretNote))
+
+
+def test_silence_hint_shown_once_per_session(app):
+    from npc.events import Info
+
+    app.recorder.silent = True
+    for _ in range(2):
+        app.on_ptt_press()
+        app.on_ptt_release()
+        drain(app)
+    assert len(of_type(app, RecordingDiscarded)) == 2   # event stream stable
+    hints = [e for e in of_type(app, Info) if "noise floor" in e.message]
+    assert len(hints) == 1                              # micro-copy only once
