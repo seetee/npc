@@ -9,7 +9,8 @@ from pathlib import Path
 
 from .config import ConfigError, load_config
 
-TEMPLATE_FILES = ("character.md", "adventure.md", "logbook.md", "config.toml")
+TEMPLATE_FILES = ("character.md", "adventure.md", "logbook.md", "config.toml",
+                  "secrets.md")
 
 
 def init_campaign(campaign_dir: Path) -> list[Path]:
@@ -160,7 +161,9 @@ def cmd_run(args) -> int:
         print_event(event)
         if args.timings and isinstance(event, TurnCompleted):
             print(format_timings(event))
-        if overlay is not None:
+        if overlay is not None and not type(event).dm_only:
+            # dm_only events (secret requests, hints, ids) must never reach
+            # the table-facing websocket
             if isinstance(event, NpcSwitched):
                 # late-connecting OBS pages get the current name in Hello
                 overlay.hello["npc_name"] = event.npc_name

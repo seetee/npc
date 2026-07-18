@@ -1,6 +1,47 @@
 import pytest
 
 from npc.session.prompt import build_system_prompt, extract_dialogue, looks_foreign
+from npc.session.secrets import Secret, SecretsSheet
+
+
+def sheet():
+    return SecretsSheet(entries=[
+        Secret(id="duke-tomb", hint="where the Duke is buried",
+               body="In the salt vault."),
+        Secret(id="smuggler-name", hint="who runs the shipments",
+               body="Alderman Voss.", mode="deflect", revealed="session 1"),
+    ])
+
+
+def test_secrets_blocks_hints_locked_bodies_only_when_revealed():
+    prompt = build_system_prompt("CHARSHEET", "ADV", "", [], secrets=sheet())
+    # locked: hint + handling + marker listed, body absent
+    assert "- topic (duke-tomb): where the Duke is buried" in prompt
+    assert "[CHECK:duke-tomb]" in prompt
+    assert "salt vault" not in prompt
+    # revealed: body present under its id
+    assert "## smuggler-name" in prompt and "Alderman Voss." in prompt
+    # both blocks sit between the sheet and the adventure notes
+    order = ["CHARSHEET", "Knowledge you may now share", "Locked knowledge", "ADV"]
+    positions = [prompt.index(p) for p in order]
+    assert positions == sorted(positions)
+
+
+def test_denied_secrets_are_delisted_from_the_prompt():
+    prompt = build_system_prompt("X", "", "", [], secrets=sheet(),
+                                 denied={"duke-tomb"})
+    # the only locked secret is denied → no locked block at all this session
+    assert "Locked knowledge" not in prompt
+    assert "duke-tomb" not in prompt
+    # revealed knowledge is unaffected
+    assert "Alderman Voss." in prompt
+
+
+def test_secrets_blocks_absent_without_secrets():
+    for secrets in (None, SecretsSheet()):
+        prompt = build_system_prompt("X", "", "", [], secrets=secrets)
+        assert "Locked knowledge" not in prompt
+        assert "Knowledge you may now share" not in prompt
 
 
 def test_all_sections_in_order():

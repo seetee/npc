@@ -87,6 +87,7 @@ main {
   &[data-state="recording"]  { --state-color: var(--alert); }
   &[data-state="processing"] { --state-color: var(--phosphor); }
   &[data-state="speaking"]   { --state-color: var(--datasphere); }
+  &[data-state="pondering"]  { --state-color: var(--datasphere); }
 }
 
 header {
@@ -201,6 +202,16 @@ const STATES = {
   speaking:   "◍ SPEAKING",
 };
 let streamed = "";
+let state = "idle";
+let pondering = false;  // hesitate-mode secret awaiting the GM (content-free)
+
+function renderState() {
+  // pondering fills the quiet while the GM decides; live states outrank it
+  const shown = (pondering && state === "idle") ? "pondering" : state;
+  plate.dataset.state = shown;
+  el("state").textContent = shown === "pondering" ? "◔ PONDERING…"
+                                                  : (STATES[state] ?? state);
+}
 
 function handle(event) {
   switch (event.type) {
@@ -215,8 +226,12 @@ function handle(event) {
       }
       break;
     case "StateChanged":
-      plate.dataset.state = event.state;   // idle|recording|processing|speaking
-      el("state").textContent = STATES[event.state] ?? event.state;
+      state = event.state;                 // idle|recording|processing|speaking
+      renderState();
+      break;
+    case "SecretPondering":
+      pondering = event.active;
+      renderState();
       break;
     case "NpcSwitched":
       el("name").textContent = event.npc_name;
@@ -224,6 +239,8 @@ function handle(event) {
       el("player").textContent = "";       // the shown exchange was the old NPC's
       el("reply").textContent = "";
       streamed = "";
+      pondering = false;                   // any pending request was the old NPC's
+      renderState();
       break;
     case "PlayerSpoke":
       el("player").textContent = event.text;

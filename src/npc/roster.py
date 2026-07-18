@@ -16,6 +16,7 @@ from pathlib import Path
 from .config import Config
 from .session.history import ConversationHistory
 from .session.logbook import Logbook
+from .session.secrets import SecretsSheet
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class CharacterFile:
     stem: str
     path: Path
     logbook_path: Path
+    secrets_path: Path
     legacy: bool  # the campaign-root character.md (keeps using logbook.md)
 
 
@@ -34,7 +36,8 @@ def discover_character_files(campaign_dir: Path) -> list[CharacterFile]:
     legacy = campaign_dir / "character.md"
     if legacy.exists():
         found.append(CharacterFile("character", legacy,
-                                   campaign_dir / "logbook.md", legacy=True))
+                                   campaign_dir / "logbook.md",
+                                   campaign_dir / "secrets.md", legacy=True))
     characters_dir = campaign_dir / "characters"
     if characters_dir.is_dir():
         for path in sorted(characters_dir.glob("*.md")):
@@ -42,7 +45,8 @@ def discover_character_files(campaign_dir: Path) -> list[CharacterFile]:
                 continue  # stem collision with the legacy character.md
             found.append(CharacterFile(
                 path.stem, path,
-                campaign_dir / "logbooks" / f"{path.stem}.md", legacy=False))
+                campaign_dir / "logbooks" / f"{path.stem}.md",
+                campaign_dir / "secrets" / f"{path.stem}.md", legacy=False))
     return found
 
 
@@ -69,17 +73,39 @@ class CharacterSlot:
     turns: list[tuple[str, str]] = field(default_factory=list)
     player_turns: int = 0
     dirty: bool = False  # has turns not yet summarized into the logbook
+    secrets_path: Path | None = None
+    secrets: SecretsSheet = field(default_factory=SecretsSheet)
+    secrets_error: str | None = None  # parse failure; the app surfaces it
+    pending_secret: str | None = None  # id awaiting the GM's /yes or /no
+    denied_secrets: set[str] = field(default_factory=set)  # /no'd this session
 
     def refresh(self, config: Config) -> None:
         """Re-read the character file (/reload). Conversation state is
-        deliberately preserved — only text, name, and voice are replaced."""
+        deliberately preserved — only text, name, voice, and secrets are
+        replaced. A broken secrets file keeps the old sheet and records the
+        error instead of crashing the session."""
         self.character = self.path.read_text(encoding="utf-8")
         self.name = read_display_name(self.character, self.stem)
         self.voice = config.tts.voices.get(self.stem)
+        self.secrets, self.secrets_error = _load_sheet(self.secrets_path,
+                                                       self.secrets)
+
+
+def _load_sheet(path: Path | None,
+                keep: SecretsSheet) -> tuple[SecretsSheet, str | None]:
+    from .session.secrets import SecretsError
+
+    if path is None:
+        return keep, None
+    try:
+        return SecretsSheet.load(path), None
+    except SecretsError as exc:
+        return keep, f"{path.name}: {exc}"
 
 
 def load_slot(ref: CharacterFile, config: Config) -> CharacterSlot:
     text = ref.path.read_text(encoding="utf-8")
+    secrets, secrets_error = _load_sheet(ref.secrets_path, SecretsSheet())
     return CharacterSlot(
         stem=ref.stem,
         path=ref.path,
@@ -88,6 +114,9 @@ def load_slot(ref: CharacterFile, config: Config) -> CharacterSlot:
         logbook=Logbook(ref.logbook_path),
         history=ConversationHistory(limit=config.history_limit),
         voice=config.tts.voices.get(ref.stem),
+        secrets_path=ref.secrets_path,
+        secrets=secrets,
+        secrets_error=secrets_error,
     )
 
 

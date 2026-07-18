@@ -73,3 +73,31 @@ def test_stem_collision_is_flagged(tmp_path):
     (tmp_path / "characters" / "character.md").write_text("# Impostor\n")
     collision = [c for c in npc_voice_checks(config) if c.name == "Character files"]
     assert len(collision) == 1 and not collision[0].ok
+
+
+def test_secrets_check_passes_and_counts(tmp_path):
+    from npc.doctor import npc_secrets_checks
+
+    (tmp_path / "character.md").write_text("# Vess\n")
+    (tmp_path / "secrets.md").write_text(
+        "## a\nhint: h\n\nbody\n\n## b\nhint: h\nrevealed: session 1\n\nbody\n")
+    checks = npc_secrets_checks(Config(campaign_dir=tmp_path))
+    assert [(c.name, c.ok, c.detail) for c in checks] == [
+        ("Secrets (character)", True, "1 locked, 1 revealed")]
+
+
+def test_broken_secrets_file_is_flagged_soft(tmp_path):
+    from npc.doctor import npc_secrets_checks
+
+    (tmp_path / "character.md").write_text("# Vess\n")
+    (tmp_path / "secrets.md").write_text("## bad\nno hint here\n")
+    checks = npc_secrets_checks(Config(campaign_dir=tmp_path))
+    assert len(checks) == 1 and not checks[0].ok and not checks[0].hard
+    assert "missing its 'hint:'" in checks[0].detail
+
+
+def test_missing_secrets_file_is_not_checked(tmp_path):
+    from npc.doctor import npc_secrets_checks
+
+    (tmp_path / "character.md").write_text("# Vess\n")
+    assert npc_secrets_checks(Config(campaign_dir=tmp_path)) == []

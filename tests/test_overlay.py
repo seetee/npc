@@ -63,3 +63,34 @@ def test_port_collision_raises_at_start():
     with pytest.raises(OSError):
         second.start()
     first.stop()
+
+
+def test_dm_only_events_are_marked_and_defaults_are_not():
+    """cli.on_event skips overlay.publish for type(event).dm_only — these
+    flags ARE the leak gate for secret ids/hints on the table websocket."""
+    from npc.events import (
+        Event,
+        GmNoteAdded,
+        Info,
+        SecretList,
+        SecretNote,
+        SecretPending,
+        SecretPondering,
+        SecretResolved,
+        SecretRevealRequested,
+    )
+
+    dm_only = (SecretRevealRequested, SecretResolved, SecretPending,
+               SecretList, SecretNote)
+    for cls in dm_only:
+        assert cls.dm_only is True, cls.__name__
+    for cls in (Event, StateChanged, NpcReplied, Info, GmNoteAdded,
+                SecretPondering):  # pondering is table-safe on purpose
+        assert cls.dm_only is False, cls.__name__
+
+
+def test_secret_pondering_serializes_content_free():
+    from npc.events import SecretPondering
+
+    data = json.loads(event_to_json(SecretPondering("Vess", active=True)))
+    assert data == {"type": "SecretPondering", "npc_name": "Vess", "active": True}

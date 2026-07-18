@@ -32,6 +32,12 @@ from .events import (
     PlayerSpoke,
     RecordingDiscarded,
     RecordingStarted,
+    SecretList,
+    SecretNote,
+    SecretPending,
+    SecretPondering,
+    SecretResolved,
+    SecretRevealRequested,
     SessionEnding,
     State,
     StateChanged,
@@ -49,6 +55,15 @@ from .session.prompt import (
     looks_foreign,
     strip_decoration,
 )
+from .session.secrets import (
+    FALLBACK_STALL,
+    MarkerScrubber,
+    Secret,
+    delivery_instruction,
+    deny_note,
+    find_markers,
+    strip_markers,
+)
 from .session.sentences import iter_sentences
 from .stt import looks_like_hallucination
 
@@ -62,6 +77,10 @@ Voice (hold the push-to-talk key)  in-character player dialogue
 <typed text>                       out-of-character instruction to the LLM
 /say <text>                        typed in-character player line
 /npc [name]                        list NPCs / switch who you're talking to
+/yes [note] · /no [note]           answer a pending secret-reveal request
+/later                             dismiss the request without deciding
+/secrets                           list the active NPC's secrets and status
+/reveal <id>                       unlock a secret without being asked
 /save                              summarize session into the logbook now
 /reload                            re-read character.md / adventure.md / config.toml
 /status                            show state, model, session info
@@ -144,6 +163,11 @@ class NPCApp:
                 self.roster[ref.stem].refresh(self.config)
             else:
                 self.roster[ref.stem] = load_slot(ref, self.config)
+            slot = self.roster[ref.stem]
+            if slot.secrets_error:  # dm_only: parse errors can name secret ids
+                self._emit(SecretNote(
+                    f"[{slot.name}: secrets file ignored — {slot.secrets_error}]"))
+                slot.secrets_error = None
         gone = self.roster.keys() - {ref.stem for ref in refs}
         if gone:
             self._emit(Info(f"[character files removed: {', '.join(sorted(gone))} "
@@ -306,6 +330,17 @@ class NPCApp:
                     self._queue.put(("say", arg))
             case "/npc":
                 self._cmd_npc(arg)
+            case "/yes" | "/no":
+                if not self.active.pending_secret:
+                    self._emit(SecretNote("[no secret is awaiting a decision]"))
+                else:
+                    self._queue.put(("secret", (cmd == "/yes", arg)))
+            case "/later":
+                self._queue.put(("later", None))
+            case "/reveal":
+                self._cmd_reveal(arg)
+            case "/secrets":
+                self._cmd_secrets()
             case "/save":
                 self._queue.put(("save", None))
             case "/reload":
@@ -352,6 +387,12 @@ class NPCApp:
                     self._add_ooc(payload)
                 elif kind == "npc":
                     self._switch_npc(payload)
+                elif kind == "secret":
+                    self._resolve_secret(*payload)
+                elif kind == "later":
+                    self._dismiss_secret()
+                elif kind == "unlock":
+                    self._unlock_secret(payload)
                 elif kind == "save":
                     if any(s.dirty and s.player_turns > 0
                            for s in self.roster.values()):
@@ -380,6 +421,16 @@ class NPCApp:
         self._emit(PlayerSpoke(text))
         self._respond_to_player(text, stt_seconds=stt_seconds)
 
+    def _system_prompt(self, slot: CharacterSlot) -> str:
+        return build_system_prompt(
+            slot.character,
+            self.adventure,
+            slot.logbook.tail(self.config.logbook_sessions_in_prompt),
+            slot.ooc_notes,
+            secrets=slot.secrets,
+            denied=slot.denied_secrets,
+        )
+
     def _respond_to_player(self, text: str, stt_seconds: float | None = None) -> None:
         turn_start = time.perf_counter()
         self._set_state_if({State.IDLE}, State.PROCESSING)
@@ -387,43 +438,16 @@ class NPCApp:
         slot.history.add_player(text)
         slot.turns.append(("PLAYER", text))
         self.transcript.append_turn(self._player_tag(slot), text)
-        system = build_system_prompt(
-            slot.character,
-            self.adventure,
-            slot.logbook.tail(self.config.logbook_sessions_in_prompt),
-            slot.ooc_notes,
-        )
+        system = self._system_prompt(slot)
         messages = slot.history.as_messages()
 
         timings: dict[str, float] = {}
-        reply = (self._stream_reply(system, messages, timings)
-                 if self._can_stream() else None)
-        if reply is None:  # streaming off/rejected, or the reply wasn't English
-            timings.clear()
-            t = time.perf_counter()
-            reply = extract_dialogue(self.llm.chat(system, messages), self.npc_name)
-            if looks_foreign(reply):  # English-only lock: Alba can't speak this
-                self._emit(Info("[reply was not in English — asking again]"))
-                reply = extract_dialogue(self.llm.chat(system, messages + [
-                    {"role": "assistant", "content": reply},
-                    {"role": "user", "content":
-                     "GM NOTE (out-of-character): You broke the English-only "
-                     "rule. Give that reply again, entirely in English."},
-                ]), self.npc_name)
-            timings["llm"] = time.perf_counter() - t
-            self._record_npc_reply(slot, reply)
-            if self.speaker is not None:
-                if looks_foreign(reply):  # retry failed too — never voice this
-                    self._emit(Info("[reply still not in English — shown, not spoken]"))
-                elif self._set_state_if({State.PROCESSING}, State.SPEAKING):
-                    t = time.perf_counter()
-                    self.speaker.say(reply)
-                    timings["speak"] = time.perf_counter() - t
-        elif reply:  # streaming already spoke; "" = barged in before any audio
-            self._record_npc_reply(slot, reply)
+        requested = self._reply_turn(slot, system, messages, timings, text)
         self._player_turns += 1
         slot.player_turns += 1
         slot.dirty = True
+        if slot.pending_secret and not requested:
+            self._emit(SecretPending(slot.name, slot.pending_secret))
 
         turn = TurnCompleted(
             stt_seconds=stt_seconds,
@@ -440,6 +464,53 @@ class NPCApp:
                 and self._player_turns % self.config.checkpoint_every_turns == 0):
             self._write_logbook_entries("checkpoint")
 
+    def _reply_turn(self, slot: CharacterSlot, system: str,
+                    messages: list[dict[str, str]], timings: dict[str, float],
+                    player_line: str) -> bool:
+        """LLM → English lock → secret markers → history → TTS, shared by
+        player turns and secret-delivery turns. Returns True when the reply
+        opened a new secret-reveal request."""
+        result = (self._stream_reply(system, messages, timings)
+                  if self._can_stream() else None)
+        if result is None:  # streaming off/rejected, or the reply wasn't English
+            timings.clear()
+            t = time.perf_counter()
+            raw = self.llm.chat(system, messages)
+            marker_ids = find_markers(raw)
+            reply = extract_dialogue(strip_markers(raw), self.npc_name)
+            if looks_foreign(reply):  # English-only lock: Alba can't speak this
+                self._emit(Info("[reply was not in English — asking again]"))
+                raw = self.llm.chat(system, messages + [
+                    {"role": "assistant", "content": reply},
+                    {"role": "user", "content":
+                     "GM NOTE (out-of-character): You broke the English-only "
+                     "rule. Give that reply again, entirely in English."},
+                ])
+                marker_ids += find_markers(raw)
+                reply = extract_dialogue(strip_markers(raw), self.npc_name)
+            timings["llm"] = time.perf_counter() - t
+            requested = self._handle_markers(slot, marker_ids, player_line)
+            if not reply and requested:  # marker-only reply: never dead air
+                reply = FALLBACK_STALL
+            if reply:
+                self._record_npc_reply(slot, reply)
+            if reply and self.speaker is not None:
+                if looks_foreign(reply):  # retry failed too — never voice this
+                    self._emit(Info("[reply still not in English — shown, not spoken]"))
+                elif self._set_state_if({State.PROCESSING}, State.SPEAKING):
+                    t = time.perf_counter()
+                    self.speaker.say(reply)
+                    timings["speak"] = time.perf_counter() - t
+        else:
+            reply, cancelled, marker_ids = result
+            requested = self._handle_markers(slot, marker_ids, player_line)
+            if not reply and requested and not cancelled:
+                reply = FALLBACK_STALL  # marker-only reply: never dead air
+                self.speaker.say(reply)
+            if reply:  # "" = barged in before any audio
+                self._record_npc_reply(slot, reply)
+        return requested
+
     def _can_stream(self) -> bool:
         return (self.config.llm.stream
                 and self.speaker is not None
@@ -447,26 +518,37 @@ class NPCApp:
                 and hasattr(self.speaker, "say_stream"))
 
     def _stream_reply(self, system: str, messages: list[dict[str, str]],
-                      timings: dict[str, float]) -> str | None:
-        """Speak sentence-by-sentence while the LLM generates. Returns the
-        text to record — the whole reply, or only what was heard if barged
-        in — or None when the server rejects streaming (caller falls back).
-        SPEAKING covers the entire stream, so barge-in also cancels a reply
-        whose audio hasn't started yet."""
+                      timings: dict[str, float],
+                      ) -> tuple[str, bool, list[str]] | None:
+        """Speak sentence-by-sentence while the LLM generates. Returns
+        (text to record, barged in?, secret marker ids) — the recorded text is
+        the whole reply, or only what was heard if barged in — or None when
+        the server rejects streaming (caller falls back). Markers are scanned
+        on RAW sentences (strip_decoration deletes bracketed spans, so the
+        marker itself is never spoken). SPEAKING covers the entire stream, so
+        barge-in also cancels a reply whose audio hasn't started yet."""
         raw: list[str] = []
+        marker_ids: list[str] = []
 
         def cleaned_sentences():
             def chunks():
+                # the raw feed reaches the table screen via NpcReplyChunk —
+                # scrub [CHECK:id] markers or the secret id shows on stream
+                scrub = MarkerScrubber()
                 t0 = time.perf_counter()
                 for chunk in self.llm.chat_stream(system, messages):
                     timings.setdefault("first_token", time.perf_counter() - t0)
                     raw.append(chunk)
-                    self._emit(NpcReplyChunk(chunk))
+                    if shown := scrub.feed(chunk):
+                        self._emit(NpcReplyChunk(shown))
                     timings["llm"] = time.perf_counter() - t0
                     yield chunk
+                if shown := scrub.flush():
+                    self._emit(NpcReplyChunk(shown))
 
             spoken_any = False
             for sentence in iter_sentences(chunks()):
+                marker_ids.extend(find_markers(sentence))
                 cleaned = strip_decoration(sentence, self.npc_name)
                 if not cleaned:  # a pure stage direction is never spoken
                     continue
@@ -486,8 +568,9 @@ class NPCApp:
             return None
         timings["speak"] = time.perf_counter() - t_speak
         if cancelled:
-            return " ".join(spoken)
-        return extract_dialogue("".join(raw), self.npc_name)
+            return " ".join(spoken), True, marker_ids
+        return (extract_dialogue(strip_markers("".join(raw)), self.npc_name),
+                False, marker_ids)
 
     def _record_npc_reply(self, slot: CharacterSlot, reply: str) -> None:
         slot.history.add_npc(reply)
@@ -495,16 +578,155 @@ class NPCApp:
         self.transcript.append_turn(slot.name, reply)
         self._emit(NpcReplied(slot.name, reply))
 
-    def _add_ooc(self, text: str) -> None:
+    def _add_ooc(self, text: str, emit: bool = True) -> None:
         """Worker handler for bare typed lines: a standing GM note for
-        whichever NPC is active when it is processed."""
+        whichever NPC is active when it is processed. Secret-flow notes pass
+        emit=False — GmNoteAdded reaches the overlay, and secret ids/hints
+        must never ride the table-facing stream."""
         slot = self.active
         slot.ooc_notes.append(text)
         slot.history.add_ooc(text)
         slot.turns.append(("GM", text))
         slot.dirty = True
         self.transcript.append_turn("GM", text)
-        self._emit(GmNoteAdded(text))
+        if emit:
+            self._emit(GmNoteAdded(text))
+
+    # ---------- GM-gated secrets ----------
+
+    def _handle_markers(self, slot: CharacterSlot, marker_ids: list[str],
+                        player_line: str) -> bool:
+        """Turn the reply's [CHECK:id] markers into at most one reveal request
+        for the GM. Returns True when a new request was opened."""
+        for secret_id in marker_ids:
+            secret = slot.secrets.get(secret_id)
+            if secret is None:
+                self._emit(SecretNote(
+                    f"[{slot.name} emitted unknown marker [CHECK:{secret_id}] "
+                    "— ignored]"))
+                continue
+            if (secret.revealed or secret_id in slot.denied_secrets
+                    or slot.pending_secret is not None):
+                continue  # duplicate ask, settled secret, or one already pending
+            slot.pending_secret = secret_id
+            if secret.mode == "hesitate":
+                # content-free table flavor; deflect mode stays invisible
+                self._emit(SecretPondering(slot.name))
+            self._emit(SecretRevealRequested(slot.name, secret_id,
+                                             secret.hint, player_line))
+            return True
+        return False
+
+    def _cmd_reveal(self, arg: str) -> None:
+        """Main thread: validate, then serialize the unlock via the worker."""
+        slot = self.active
+        secret_id = arg.strip().lower()
+        if not secret_id:
+            self._emit(SecretNote("[usage: /reveal <secret-id> — /secrets lists them]"))
+        elif (secret := slot.secrets.get(secret_id)) is None:
+            self._emit(SecretNote(
+                f"[unknown secret {secret_id!r} for {slot.name} — /secrets lists them]"))
+        elif secret.revealed:
+            self._emit(SecretNote(f"[({secret_id}) is already revealed]"))
+        else:
+            self._queue.put(("unlock", secret_id))
+
+    def _cmd_secrets(self) -> None:
+        slot = self.active
+        if not slot.secrets.entries:
+            where = slot.secrets_path or "a secrets file"
+            self._emit(SecretNote(f"[no secrets for {slot.name} — add them in {where}]"))
+            return
+        lines = []
+        for s in slot.secrets.entries:
+            if s.revealed:
+                mark = f"✓ revealed ({s.revealed})"
+            elif s.id == slot.pending_secret:
+                mark = "⏳ pending your /yes or /no"
+            elif s.id in slot.denied_secrets:
+                mark = "✗ denied this session"
+            else:
+                mark = "🔒 locked"
+            lines.append(f"{mark} — ({s.id}) {s.hint}")
+        self._emit(SecretList(slot.name, tuple(lines)))
+
+    def _resolve_secret(self, approved: bool, note: str) -> None:
+        """Worker: settle the pending request (/yes or /no)."""
+        slot = self.active
+        secret_id = slot.pending_secret
+        secret = slot.secrets.get(secret_id) if secret_id else None
+        if secret is None:  # raced a /reload or the queue; nothing to settle
+            slot.pending_secret = None
+            self._emit(SecretNote("[no secret is awaiting a decision]"))
+            return
+        slot.pending_secret = None
+        if secret.mode == "hesitate":  # clear the table's pondering state
+            self._emit(SecretPondering(slot.name, active=False))
+        if not approved:
+            slot.denied_secrets.add(secret.id)
+            self._add_ooc(deny_note(secret, note), emit=False)
+            self._emit(SecretResolved(slot.name, secret.id, False, note))
+            return
+        self._mark_revealed(slot, secret)
+        self._emit(SecretResolved(slot.name, secret.id, True, note))
+        self._deliver_secret(slot, secret, note)
+
+    def _dismiss_secret(self) -> None:
+        """Worker: /later — clear the pending request WITHOUT denying, e.g.
+        for a spurious marker on an unrelated line. The secret stays locked
+        and listed, so the NPC may raise it again."""
+        slot = self.active
+        secret_id = slot.pending_secret
+        if not secret_id:
+            self._emit(SecretNote("[no secret is awaiting a decision]"))
+            return
+        slot.pending_secret = None
+        secret = slot.secrets.get(secret_id)
+        if secret is not None and secret.mode == "hesitate":
+            self._emit(SecretPondering(slot.name, active=False))
+        self._emit(SecretNote(
+            f"[dismissed — ({secret_id}) stays locked and may come up again]"))
+
+    def _unlock_secret(self, secret_id: str) -> None:
+        """Worker: /reveal — unlock proactively, no immediate speech; the NPC
+        volunteers it at the next natural moment instead."""
+        slot = self.active
+        secret = slot.secrets.get(secret_id)
+        if secret is None or secret.revealed:
+            self._emit(SecretNote(f"[({secret_id}) not unlockable — /secrets lists them]"))
+            return
+        if slot.pending_secret == secret.id:
+            slot.pending_secret = None
+            if secret.mode == "hesitate":
+                self._emit(SecretPondering(slot.name, active=False))
+        slot.denied_secrets.discard(secret.id)
+        self._mark_revealed(slot, secret)
+        self._add_ooc(
+            f"The GM has unlocked the topic ({secret.id}) — your character "
+            "now knows it fully (see 'Knowledge you may now share'); bring it "
+            "up at the next natural moment.", emit=False)
+        self._emit(SecretResolved(slot.name, secret.id, True, ""))
+
+    def _mark_revealed(self, slot: CharacterSlot, secret: Secret) -> None:
+        """Persist the reveal (atomic write-back) and put it on the record so
+        the session summary knows what the players learned."""
+        secret.revealed = f"session {self.session_no}"
+        if slot.secrets_path is not None:
+            slot.secrets.save(slot.secrets_path)
+        slot.turns.append(("GM", f"revealed the secret ({secret.id}): {secret.hint}"))
+        slot.dirty = True
+        self.transcript.append_turn("GM", f"[revealed secret ({secret.id}): {secret.hint}]")
+
+    def _deliver_secret(self, slot: CharacterSlot, secret: Secret,
+                        rider: str) -> None:
+        """The /yes follow-up turn: the body is now in the prompt's revealed
+        block, and a one-shot GM instruction tells the NPC to share it."""
+        self._set_state_if({State.IDLE}, State.PROCESSING)
+        system = self._system_prompt(slot)
+        messages = slot.history.as_messages() + [
+            {"role": "user", "content": delivery_instruction(secret, rider)}]
+        timings: dict[str, float] = {}
+        self._reply_turn(slot, system, messages, timings, player_line="")
 
     def _player_tag(self, slot: CharacterSlot) -> str:
         """Transcript attribution: single-NPC campaigns stay clean."""
@@ -548,6 +770,8 @@ class NPCApp:
         self.speaker = self._speaker_for(slot)
         self.active = slot
         self._emit(NpcSwitched(slot.name, slot.voice))
+        if slot.pending_secret:  # a decision is still owed for this NPC
+            self._emit(SecretPending(slot.name, slot.pending_secret))
 
     def _speaker_for(self, slot: CharacterSlot):
         """The speaker for a slot's voice, created lazily and cached by voice

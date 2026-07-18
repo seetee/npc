@@ -557,3 +557,209 @@ def test_checkpoint_every_n_turns(config):
     app._queue.put(None)
     assert any(isinstance(e, LogbookWritten) and e.kind == "checkpoint" for e in events)
     assert "## Session 1" in config.logbook_file.read_text()
+
+
+# ---------- GM-gated secrets ----------
+# the scaffolded campaign ships secrets.md with (teleporter-key) [hesitate]
+# and (erased-discovery) [deflect]
+
+from npc.events import (  # noqa: E402
+    SecretList,
+    SecretNote,
+    SecretPending,
+    SecretPondering,
+    SecretResolved,
+    SecretRevealRequested,
+)
+from npc.session.secrets import FALLBACK_STALL  # noqa: E402
+
+STALL = "Hm. Give me a moment — that is not a thing I speak of lightly."
+
+
+def ask_locked(app, reply=f"{STALL} [CHECK:teleporter-key]"):
+    app.llm.reply = reply
+    app.handle_line("/say what is hidden under the altar?")
+    drain(app)
+
+
+def test_marker_opens_request_and_never_reaches_players(app):
+    ask_locked(app)
+
+    req = of_type(app, SecretRevealRequested)[0]
+    assert req.secret_id == "teleporter-key"
+    assert "teleporter key" in req.hint
+    assert req.player_line == "what is hidden under the altar?"
+    assert app.active.pending_secret == "teleporter-key"
+    assert of_type(app, SecretPondering) == [
+        SecretPondering("Vess of the Amber Monolith", active=True)]
+    # the marker is stripped from everything the table sees or hears
+    assert app.speaker.spoken == [STALL]
+    assert of_type(app, NpcReplied)[0].text == STALL
+    assert "CHECK" not in app.transcript.read()
+    # the locked BODY was not in the prompt for this turn
+    system = app.llm.calls[0][0]
+    assert "teleporter key" in system      # the hint is
+    assert "altar stone" not in system     # the body is not
+
+
+def test_yes_delivers_the_secret_and_persists(app, campaign):
+    ask_locked(app)
+    app.llm.reply = "Beneath the altar stone lies a key, three charges left."
+    app.handle_line("/yes but only vaguely")
+    drain(app)
+
+    assert of_type(app, SecretResolved) == [SecretResolved(
+        "Vess of the Amber Monolith", "teleporter-key", True, "but only vaguely")]
+    assert app.active.pending_secret is None
+    assert of_type(app, SecretPondering)[-1].active is False
+    # delivery turn: body now in the prompt, one-shot GM instruction last
+    system, messages = app.llm.calls[-1]
+    assert "altar stone" in system
+    assert "you WILL share" in messages[-1]["content"]
+    assert "GM adds: but only vaguely" in messages[-1]["content"]
+    # the delivery instruction is one-shot, never a standing note
+    assert app.active.ooc_notes == []
+    # spoken + recorded like any reply
+    assert app.speaker.spoken[-1] == app.llm.reply
+    assert of_type(app, NpcReplied)[-1].text == app.llm.reply
+    # write-back: the reveal survives a restart
+    assert "revealed: session 1" in (campaign / "secrets.md").read_text()
+    # and the session summary will know
+    assert ("GM", "revealed the secret (teleporter-key): "
+            "the location of a working teleporter key — only for someone "
+            "with her full trust") in app.active.turns
+
+
+def test_no_denies_for_the_session(app):
+    ask_locked(app)
+    app.handle_line("/no she lies and blames the raiders")
+    drain(app)
+
+    resolved = of_type(app, SecretResolved)[0]
+    assert resolved.approved is False
+    assert app.active.denied_secrets == {"teleporter-key"}
+    assert app.active.pending_secret is None
+    note = app.active.ooc_notes[-1]
+    assert "your character truly knows nothing" in note
+    assert "teleporter-key" not in note   # the id would let the model
+    assert "GM adds: she lies and blames the raiders" in note
+    # no delivery turn, nothing new spoken
+    assert app.speaker.spoken == [STALL]
+    # a repeat marker for the denied id is ignored
+    ask_locked(app)
+    assert len(of_type(app, SecretRevealRequested)) == 1
+
+
+def test_marker_only_reply_speaks_the_fallback_stall(app):
+    ask_locked(app, reply="[CHECK:teleporter-key]")
+    assert app.speaker.spoken == [FALLBACK_STALL]
+    assert of_type(app, NpcReplied)[0].text == FALLBACK_STALL
+    assert app.active.pending_secret == "teleporter-key"
+
+
+def test_unknown_marker_is_dropped(app):
+    ask_locked(app, reply="I know nothing of that. [CHECK:made-up-thing]")
+    assert of_type(app, SecretRevealRequested) == []
+    assert app.active.pending_secret is None
+    assert any("made-up-thing" in n.message for n in of_type(app, SecretNote))
+    assert app.speaker.spoken == ["I know nothing of that."]
+
+
+def test_yes_without_pending_is_a_note(app):
+    app.handle_line("/yes")
+    app.handle_line("/no whatever")
+    drain(app)
+    assert len(of_type(app, SecretNote)) == 2
+    assert of_type(app, SecretResolved) == []
+
+
+def test_pending_reminder_on_later_turns(app):
+    ask_locked(app)
+    app.llm.reply = "Patience, I am still thinking."
+    app.handle_line("/say tell me now!")
+    drain(app)
+    assert of_type(app, SecretPending) == [
+        SecretPending("Vess of the Amber Monolith", "teleporter-key")]
+
+
+def test_secrets_listing_and_proactive_reveal(app, campaign):
+    app.handle_line("/secrets")
+    drain(app)
+    listing = of_type(app, SecretList)[0]
+    assert len(listing.lines) == 2
+    assert all(line.startswith("🔒 locked") for line in listing.lines)
+
+    app.handle_line("/reveal teleporter-key")
+    drain(app)
+    assert of_type(app, SecretResolved) == [SecretResolved(
+        "Vess of the Amber Monolith", "teleporter-key", True, "")]
+    assert "unlocked the topic (teleporter-key)" in app.active.ooc_notes[-1]
+    assert of_type(app, NpcReplied) == []          # no immediate speech
+    assert "revealed: session 1" in (campaign / "secrets.md").read_text()
+
+    app.handle_line("/secrets")
+    app.handle_line("/reveal teleporter-key")      # already revealed
+    app.handle_line("/reveal nope")                # unknown
+    drain(app)
+    assert any("✓ revealed" in line for line in of_type(app, SecretList)[-1].lines)
+    notes = [n.message for n in of_type(app, SecretNote)]
+    assert any("already revealed" in n for n in notes)
+    assert any("unknown secret" in n for n in notes)
+
+
+def test_streaming_marker_split_across_chunks_is_scrubbed(config):
+    chunks = (f"{STALL} [CHE", "CK:teleporter-key]")
+    events = []
+    app = NPCApp(config, llm=StreamingFakeLLM(chunks),
+                 speaker=StreamingFakeSpeaker(), on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say what is under the altar?")
+    drain(app)
+    app._queue.put(None)
+
+    assert of_type(app, SecretRevealRequested)[0].secret_id == "teleporter-key"
+    assert app.active.pending_secret == "teleporter-key"
+    assert app.speaker.spoken == [STALL]
+    # the raw chunk feed reaches the table screen — no marker fragments in it
+    streamed = "".join(e.text for e in of_type(app, NpcReplyChunk))
+    assert "CHECK" not in streamed and "teleporter-key" not in streamed
+    assert of_type(app, NpcReplied)[0].text == STALL
+
+
+def test_barge_in_before_the_marker_sentence_drops_the_request(config):
+    chunks = (f"{STALL} ", "And another sentence follows here. [CHECK:teleporter-key]")
+    events = []
+    app = NPCApp(config, llm=StreamingFakeLLM(chunks),
+                 speaker=StreamingFakeSpeaker(cancel_after=1),
+                 on_event=events.append)
+    app.events = events
+    app.start()
+    app.handle_line("/say what is under the altar?")
+    drain(app)
+    app._queue.put(None)
+
+    # the player interrupted the stall — the request is simply lost; the NPC
+    # will re-emit the marker next time the topic comes up
+    assert of_type(app, SecretRevealRequested) == []
+    assert app.active.pending_secret is None
+
+
+def test_later_dismisses_without_denying(app):
+    ask_locked(app)
+    app.handle_line("/later")
+    drain(app)
+    assert app.active.pending_secret is None
+    assert app.active.denied_secrets == set()
+    assert app.active.ooc_notes == []              # no deny note
+    assert of_type(app, SecretPondering)[-1].active is False
+    assert any("dismissed" in n.message for n in of_type(app, SecretNote))
+    # the topic can come up again
+    ask_locked(app)
+    assert len(of_type(app, SecretRevealRequested)) == 2
+    app.handle_line("/later")
+    # /later with nothing pending is a note, not an error
+    app.handle_line("/later")
+    drain(app)
+    assert any("no secret is awaiting" in n.message
+               for n in of_type(app, SecretNote))

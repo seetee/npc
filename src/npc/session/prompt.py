@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .secrets import SecretsSheet, locked_block, revealed_block
+
 ROLE_FRAMING = """\
 You are role-playing a single non-player character (NPC) in a live tabletop RPG
 session. You ARE this character. Stay in character at all times.
@@ -45,9 +47,22 @@ def build_system_prompt(
     adventure: str,
     logbook_tail: str,
     ooc_notes: list[str],
+    secrets: SecretsSheet | None = None,
+    denied: set[str] = frozenset(),
 ) -> str:
     parts = [ROLE_FRAMING]
     parts.append("# Your character sheet\n\n" + character.strip())
+    if secrets is not None:
+        # revealed bodies first, then the gate: hints only, NEVER bodies —
+        # the model cannot leak details it has never seen. Denied topics are
+        # DELISTED (not just rule-bound): a 7B model keeps re-emitting the
+        # marker of a listed topic, but can't flag one it no longer sees;
+        # the standing deny note carries the deflection guidance instead.
+        if secrets.revealed():
+            parts.append(revealed_block(secrets.revealed()))
+        locked = [s for s in secrets.locked() if s.id not in denied]
+        if locked:
+            parts.append(locked_block(locked))
     if adventure.strip():
         parts.append("# Adventure notes (GM background — the character knows their "
                      "own part of this world)\n\n" + adventure.strip())
@@ -60,6 +75,8 @@ def build_system_prompt(
 
 
 _STAGE_DIRECTION = re.compile(r"\*[^*\n]+\*")      # *adjusts her hood*
+# NOTE: _BRACKETED below also deletes [CHECK:id] secret markers from spoken
+# and recorded text — marker detection runs on the raw reply (app.py)
 _PARENTHETICAL = re.compile(r"\([^()\n]*\)")       # (chuckles)
 _BRACKETED = re.compile(r"\[[^\[\]\n]*\]")         # [sighs]
 _QUOTE_PAIRS = (('"', '"'), ("“", "”"), ("'", "'"))

@@ -106,6 +106,7 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
         fix_label=f"download the {config.tts.voice} voice (~60 MB)",
     ))
     checks.extend(npc_voice_checks(config))
+    checks.extend(npc_secrets_checks(config))
 
     # 5. Audio devices
     try:
@@ -182,6 +183,38 @@ def npc_voice_checks(config: Config) -> list[CheckResult]:
             detail="both character.md and characters/character.md exist — "
                    "the campaign-root file wins, the other is ignored",
             fix="rename characters/character.md",
+        ))
+    return checks
+
+
+def npc_secrets_checks(config: Config) -> list[CheckResult]:
+    """Parse every NPC's secrets file so format mistakes (missing hint:, bad
+    mode, duplicate or invalid ids) surface here instead of silently
+    disabling the secret mid-session. Soft: a broken file never blocks
+    `npc run` — the app plays on without that NPC's secrets."""
+    from .roster import discover_character_files
+    from .session.secrets import SecretsError, SecretsSheet
+
+    checks: list[CheckResult] = []
+    for ref in discover_character_files(config.campaign_dir):
+        if not ref.secrets_path.exists():
+            continue
+        try:
+            sheet = SecretsSheet.parse(
+                ref.secrets_path.read_text(encoding="utf-8"))
+        except SecretsError as e:
+            checks.append(CheckResult(
+                f"Secrets ({ref.stem})", False,
+                detail=f"{ref.secrets_path.name}: {e}",
+                fix="fix the secrets file — format is described in the "
+                    "template secrets.md",
+            ))
+            continue
+        locked = len(sheet.locked())
+        revealed = len(sheet.revealed())
+        checks.append(CheckResult(
+            f"Secrets ({ref.stem})", True,
+            detail=f"{locked} locked, {revealed} revealed",
         ))
     return checks
 

@@ -78,6 +78,39 @@ def test_load_slot_reads_voice_mapping(tmp_path):
     assert slot.logbook.path == tmp_path / "logbooks" / "korval.md"
 
 
+SECRET = "## duke-tomb\nhint: where the Duke is buried\n\nIn the salt vault.\n"
+
+
+def test_secrets_paths_and_loading(tmp_path):
+    write(tmp_path / "character.md", "# Vess\n")
+    write(tmp_path / "characters" / "korval.md", "# Korval\n")
+    write(tmp_path / "secrets.md", SECRET)
+    legacy, korval = discover_character_files(tmp_path)
+    assert legacy.secrets_path == tmp_path / "secrets.md"
+    assert korval.secrets_path == tmp_path / "secrets" / "korval.md"
+    config = Config(campaign_dir=tmp_path)
+    slot = load_slot(legacy, config)
+    assert [s.id for s in slot.secrets.locked()] == ["duke-tomb"]
+    assert slot.secrets_error is None
+    # no secrets file at all → empty sheet, no error
+    assert load_slot(korval, config).secrets.entries == []
+
+
+def test_broken_secrets_file_keeps_old_sheet(tmp_path):
+    write(tmp_path / "character.md", "# Vess\n")
+    write(tmp_path / "secrets.md", SECRET)
+    config = Config(campaign_dir=tmp_path)
+    slot = load_slot(discover_character_files(tmp_path)[0], config)
+    write(tmp_path / "secrets.md", "## bad id\nno hint either\n")
+    slot.refresh(config)
+    assert slot.secrets_error is not None and "secrets.md" in slot.secrets_error
+    assert [s.id for s in slot.secrets.entries] == ["duke-tomb"]  # old kept
+    # broken at load time → empty sheet + error recorded
+    fresh = load_slot(discover_character_files(tmp_path)[0], config)
+    assert fresh.secrets_error is not None
+    assert fresh.secrets.entries == []
+
+
 def test_refresh_keeps_conversation_state(tmp_path):
     write(tmp_path / "characters" / "korval.md", "# Korval\n")
     config = Config(campaign_dir=tmp_path)

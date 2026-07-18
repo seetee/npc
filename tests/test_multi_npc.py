@@ -5,7 +5,14 @@ import pytest
 
 from npc.app import NPCApp
 from npc.config import load_config
-from npc.events import Info, LogbookWritten, NpcReplied, NpcSwitched, StatusReport
+from npc.events import (
+    Info,
+    LogbookWritten,
+    NpcReplied,
+    NpcSwitched,
+    SecretPending,
+    StatusReport,
+)
 
 from test_app_pipeline import FakeLLM, FakeSpeaker, drain, of_type
 
@@ -207,3 +214,56 @@ def test_reload_discovers_new_character_and_keeps_memories(multi_campaign, multi
     multi_app.handle_line("/reload")
     assert "sable" in multi_app.roster
     assert len(multi_app.roster["character"].history) == 2  # player + reply kept
+
+# ---------- secrets stay strictly per-NPC ----------
+
+def test_secrets_never_cross_npcs(multi_campaign, multi_app):
+    secrets_dir = multi_campaign / "secrets"
+    secrets_dir.mkdir()
+    (secrets_dir / "korval.md").write_text(
+        "## stolen-blade\nhint: who really took the ceremonial blade\n\n"
+        "Korval took it himself, to settle a debt.\n")
+    multi_app.handle_line("/reload")
+
+    # Vess (legacy secrets.md from the template) asks about her own secret
+    multi_app.llm.reply = "A moment. [CHECK:teleporter-key]"
+    multi_app.handle_line("/say what is under the altar?")
+    drain(multi_app)
+    assert multi_app.active.pending_secret == "teleporter-key"
+
+    switch(multi_app, "korval")
+    multi_app.llm.reply = "Why do you ask me that?"
+    multi_app.handle_line("/say who took the blade?")
+    drain(multi_app)
+    system = multi_app.llm.calls[-1][0]
+    # korval's prompt has HIS hint, and nothing of Vess's secrets
+    assert "ceremonial blade" in system
+    assert "settle a debt" not in system            # his body stays locked too
+    assert "teleporter" not in system
+    # korval cannot ask about Vess's secret: unknown id for him
+    multi_app.llm.reply = "Hm. [CHECK:teleporter-key]"
+    multi_app.handle_line("/say and the altar?")
+    drain(multi_app)
+    assert multi_app.active.pending_secret is None
+
+    # Vess's pending request survived the excursion; /yes lands on HER secret
+    switch(multi_app, "vess")
+    assert multi_app.active.pending_secret == "teleporter-key"
+    reminders = of_type(multi_app, SecretPending)
+    assert reminders[-1].npc_name == "Vess of the Amber Monolith"
+
+
+def test_reveal_to_one_npc_stays_with_that_npc(multi_campaign, multi_app):
+    multi_app.llm.reply = "A moment. [CHECK:teleporter-key]"
+    multi_app.handle_line("/say what is under the altar?")
+    drain(multi_app)  # /yes validates pending on the main thread
+    multi_app.handle_line("/yes")
+    drain(multi_app)
+    assert "altar stone" in multi_app.llm.calls[-1][0]   # Vess's delivery turn
+
+    switch(multi_app, "mira")
+    multi_app.llm.reply = "I keep to the woods."
+    multi_app.handle_line("/say what do you know?")
+    drain(multi_app)
+    assert "altar stone" not in multi_app.llm.calls[-1][0]
+    assert "teleporter" not in multi_app.llm.calls[-1][0]

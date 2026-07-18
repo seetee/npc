@@ -136,6 +136,7 @@ campaigns/mygame/
 ├── character.md    # WHO the NPC is: personality, speech style, knowledge,
 │                   # secrets, hard rules. First "# heading" = the NPC's name.
 ├── adventure.md    # your campaign background, from the GM's point of view
+├── secrets.md      # GM-gated clues: the NPC asks YOU before revealing these
 ├── logbook.md      # session summaries — written by the LLM, editable by you
 ├── config.toml     # models, voice, hotkey (all optional, defaults included)
 └── sessions/       # raw per-session transcripts, appended turn by turn
@@ -144,6 +145,43 @@ campaigns/mygame/
 The scaffolded `character.md` contains a complete example NPC (Vess, a wary
 Aeon Priest) showing the intended level of detail. The **Secrets** and **Hard
 rules** sections are where you control what the NPC will and won't reveal.
+
+### Gated secrets: the NPC checks with you first
+
+`character.md` secrets are *soft* — the NPC knows them and is told to hold
+back, but a persistent table can pry them loose. Clues in `secrets.md` are
+*locked*: the NPC is shown only a one-line hint per secret, never the content,
+so it **cannot** leak details it has never been given — no matter how hard the
+players push.
+
+When the conversation touches a locked topic, the NPC stalls in character
+("Hm. Give me a moment…") and a prompt appears at your `gm>` console:
+
+```
+⚑ Vess asks to reveal (teleporter-key) — the location of a working teleporter key
+   player: "What's hidden under the altar?"
+   → /yes [note] · /no [note] — stays pending until you decide
+```
+
+Take your time — call for a die roll, check your notes; the request stays
+pending while play continues. Then answer, optionally steering the reveal:
+`/yes but only vaguely, she's still frightened` or `/no she lies and blames
+the raiders`. On `/yes` the secret's full text is handed to the NPC and it
+shares the clue in its own words; on `/no` the topic stays locked for the rest
+of the session; `/later` just dismisses the request (for a misfire, or "not
+yet") so it can come up again. `/secrets` lists each secret's status, and
+`/reveal <id>` unlocks one proactively (the NPC brings it up at the next
+natural moment).
+Reveals are written back into `secrets.md`, so they persist across sessions.
+
+Each secret has a `mode`: `hesitate` (default — the NPC pauses audibly, which
+players *will* notice) or `deflect` (it brushes the question off as if it knew
+nothing, and can "change its mind" if you approve). Write each secret's
+one-line `hint:` in the words players are likely to use — the hint is the only
+thing the NPC can match a question against, since it never sees the secret
+itself. The scaffolded `secrets.md` documents the format; multi-NPC campaigns
+use one file per character in `secrets/<name>.md`. Nothing about a secret —
+not even its id — is ever sent to the table overlay.
 
 ### Multiple NPCs
 
@@ -177,6 +215,10 @@ uv run npc run campaigns/mygame
 | type anything | out-of-character instruction to the LLM |
 | `/say Have you seen the raiders?` | typed in-character player line (no mic needed) |
 | `/npc korval` | switch which NPC you're talking to (`/npc` lists them) |
+| `/yes only the rough direction` / `/no` | answer a pending secret-reveal request, with an optional steer |
+| `/later` | dismiss a reveal request without deciding (it can come up again) |
+| `/secrets` | list the active NPC's gated secrets and their status |
+| `/reveal teleporter-key` | unlock a secret without waiting to be asked |
 | `/save` | write the session summary to the logbook now |
 | `/reload` | re-read `character.md`, `adventure.md`, `config.toml` |
 | `/status` | current state, model, session number |

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+from typing import ClassVar, Literal
 
 
 class State(StrEnum):
@@ -24,6 +24,10 @@ class State(StrEnum):
 @dataclass(frozen=True, slots=True)
 class Event:
     """Base class for all app events."""
+
+    # DM-eyes-only: never published to the overlay websocket (cli.on_event
+    # gates on this) — secret ids and hints must not reach the table screen
+    dm_only: ClassVar[bool] = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +146,57 @@ class StatusReport(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class SecretRevealRequested(Event):
+    """The NPC hit a locked topic and asks the GM to unlock it (/yes or /no)."""
+    dm_only: ClassVar[bool] = True
+    npc_name: str
+    secret_id: str
+    hint: str
+    player_line: str  # what the player said that triggered it ("" for none)
+
+
+@dataclass(frozen=True, slots=True)
+class SecretResolved(Event):
+    dm_only: ClassVar[bool] = True
+    npc_name: str
+    secret_id: str
+    approved: bool
+    note: str  # the GM's free-text rider, "" if none
+
+
+@dataclass(frozen=True, slots=True)
+class SecretPending(Event):
+    """Per-turn reminder that a reveal request still awaits /yes or /no."""
+    dm_only: ClassVar[bool] = True
+    npc_name: str
+    secret_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class SecretList(Event):
+    """The /secrets status listing for the active NPC."""
+    dm_only: ClassVar[bool] = True
+    npc_name: str
+    lines: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SecretNote(Event):
+    """Free-text secret-related notice that must stay off the overlay."""
+    dm_only: ClassVar[bool] = True
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class SecretPondering(Event):
+    """Overlay flavor while a hesitate-mode request goes to the GM: the NPC
+    is 'thinking'. Deliberately content-free — safe for the table screen.
+    active=False clears it once the GM has decided."""
+    npc_name: str
+    active: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class Info(Event):
     """Free-text output with no structured payload (help text, usage hints)."""
     message: str
@@ -201,6 +256,24 @@ def format_event(event: Event) -> str | None:
                     f"model: {s.model} | "
                     f"session {s.session_no}, {s.player_turns} player turns | "
                     f"{s.gm_notes} standing GM notes{timing}]")
+        case SecretRevealRequested(npc_name=name, secret_id=sid,
+                                   hint=hint, player_line=player_line):
+            lines = [f"⚑ {name} asks to reveal ({sid}) — {hint}"]
+            if player_line:
+                lines.append(f'   player: "{player_line}"')
+            lines.append("   → /yes [note] · /no [note] · /later — stays pending until you decide")
+            return "\n".join(lines)
+        case SecretResolved(secret_id=sid, approved=approved, note=note):
+            verdict = "revealed" if approved else "stays hidden"
+            return f"[secret ({sid}) {verdict}" + (f" — {note}]" if note else "]")
+        case SecretPending(secret_id=sid):
+            return f"[reminder: ({sid}) still awaits /yes or /no]"
+        case SecretList(npc_name=name, lines=lines):
+            return "\n".join([f"Secrets of {name}:", *(f"  {line}" for line in lines)])
+        case SecretNote(message=message):
+            return message
+        case SecretPondering():
+            return None  # overlay flavor; the CLI shows SecretRevealRequested
         case Info(message=message):
             return message
         case _:

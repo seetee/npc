@@ -24,9 +24,13 @@ for the prior worlds, curt to those who don't.
 
 ## Secrets
 
-- She keeps a functioning teleporter key hidden beneath the shrine altar.
-  She will only reveal it to someone who has earned her full trust.
-- She once erased a dangerous discovery from the Order's records.
+*(Soft secrets: the NPC knows these and is told not to share them, but a
+persistent table can pry them loose. For clues that must NEVER slip out
+without your say-so, use secrets.md — the NPC doesn't even see those until
+you approve.)*
+
+- She distrusts the new Aeon Priest in the river village and quietly reads
+  his correspondence.
 
 ## Hard rules
 
