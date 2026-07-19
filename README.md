@@ -101,6 +101,12 @@ uv tool install "ttrpg-npc[cuda]"     # with NVIDIA GPU (adds CUDA libs for whis
 That puts `npc` on your PATH (`~/.local/bin`); the `uv run` prefix in the
 examples below becomes optional.
 
+> **`pipx` fails with `fatal error: Python.h: No such file or directory`?**
+> The `evdev` dependency compiles a small C extension, and pipx builds it
+> against your system Python — which needs the dev headers:
+> `sudo apt install python3-dev`, then retry. `uv tool install` avoids this
+> entirely (uv's managed Pythons bundle their headers).
+
 **Or from source**, if you want to hack on it:
 
 ```bash
