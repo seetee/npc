@@ -1,9 +1,9 @@
 # npc — an offline AI NPC for your game table
 
 [![PyPI](https://img.shields.io/pypi/v/ttrpg-npc)](https://pypi.org/project/ttrpg-npc/)
-[![Vibe Coded](https://img.shields.io/badge/vibe-coded-ff69b4)](https://en.wikipedia.org/wiki/Vibe_coding)
-[![Coded with Claude Code](https://img.shields.io/badge/coded%20with-Claude%20Code-cc785c)](https://claude.com/claude-code)
-[![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue)](LICENSE)
+[![vibe coded](https://img.shields.io/badge/vibe_coded-%E2%9C%A8-ff69b4?style=flat-square)](https://en.wikipedia.org/wiki/Vibe_coding)
+[![coded with Claude](https://img.shields.io/badge/coded_with-Claude_Code-CC785C?style=flat-square&logo=anthropic)](https://claude.ai/code)
+[![license: AGPL v3](https://img.shields.io/badge/license-AGPL_v3-blue?style=flat-square)](LICENSE)
 
 **Hold a button, talk to an NPC, and it talks back — in character, out loud,
 with no cloud in sight.**
