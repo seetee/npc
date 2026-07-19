@@ -1,10 +1,24 @@
 [project]
-name = "npc"
-version = "0.1.0"
-description = "Offline AI NPC voice agent for tabletop RPGs like Numenera"
+name = "ttrpg-npc"
+version = "1.0.0"
+description = "Offline voice agent that role-plays NPCs at the tabletop RPG game table"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "seetee" }]
+keywords = ["ttrpg", "tabletop", "rpg", "npc", "voice", "offline", "whisper", "piper", "ollama"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment :: Role-Playing",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "evdev>=1.7",
     "faster-whisper>=1.1",
@@ -24,6 +38,12 @@ cuda = [
     "nvidia-cudnn-cu12>=9",
 ]
 
+[project.urls]
+Homepage = "https://github.com/seetee/npc"
+Repository = "https://github.com/seetee/npc"
+Issues = "https://github.com/seetee/npc/issues"
+Changelog = "https://github.com/seetee/npc/blob/main/CHANGELOG.md"
+
 [project.scripts]
 npc = "npc.cli:main"
 
@@ -39,6 +59,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/npc"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/", ".github/", "campaigns/"]
 
 [tool.pytest.ini_options]
 markers = [

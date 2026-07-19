@@ -7,6 +7,7 @@ import sys
 from importlib import resources
 from pathlib import Path
 
+from . import __version__
 from .config import ConfigError, load_config
 
 TEMPLATE_FILES = ("character.md", "adventure.md", "logbook.md", "config.toml",
@@ -508,6 +509,7 @@ def main(argv=None) -> int:
         prog="npc",
         description="Offline AI NPC voice agent for tabletop RPGs.",
     )
+    parser.add_argument("--version", action="version", version=f"npc {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add(name, func, help_text, campaign_optional=False):

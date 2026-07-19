@@ -50,9 +50,15 @@
 - **Docs that show** ✓ — recorded demo GIF, audio sample, overlay
   screenshot, the `examples/` campaign gallery, `ARCHITECTURE.md`.
 
-## v2.x
-- **Release hygiene** — version tags, `CHANGELOG.md`, PyPI packaging,
-  `CONTRIBUTING.md`.
+### v1.0.0 — first public release
+
+- **Release hygiene** ✓ — published to PyPI as
+  [`ttrpg-npc`](https://pypi.org/project/ttrpg-npc/) (the command stays
+  `npc`), `v1.0.0` git tag, `CHANGELOG.md`, `CONTRIBUTING.md`,
+  `npc --version`.
+
+## Possible future work
+
 - **Silero VAD upgrade** — drop-in replacement for the energy VAD inside
   `VadRecorder` if rooms prove too noisy for a dBFS threshold.
 - **Streaming peek-ahead narration filter** — only if the probe starts showing

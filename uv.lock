@@ -376,59 +376,6 @@ wheels = [
 ]
 
 [[package]]
-name = "npc"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "evdev" },
-    { name = "faster-whisper" },
-    { name = "httpx" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "ollama" },
-    { name = "piper-tts" },
-    { name = "prompt-toolkit" },
-    { name = "pypdf" },
-    { name = "sounddevice" },
-    { name = "websockets" },
-]
-
-[package.optional-dependencies]
-cuda = [
-    { name = "nvidia-cublas-cu12" },
-    { name = "nvidia-cudnn-cu12" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "evdev", specifier = ">=1.7" },
-    { name = "faster-whisper", specifier = ">=1.1" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "nvidia-cublas-cu12", marker = "extra == 'cuda'" },
-    { name = "nvidia-cudnn-cu12", marker = "extra == 'cuda'", specifier = ">=9" },
-    { name = "ollama", specifier = ">=0.5" },
-    { name = "piper-tts", specifier = ">=1.2" },
-    { name = "prompt-toolkit", specifier = ">=3.0" },
-    { name = "pypdf", specifier = ">=5" },
-    { name = "sounddevice", specifier = ">=0.5" },
-    { name = "websockets", specifier = ">=13" },
-]
-provides-extras = ["cuda"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8" },
-    { name = "ruff", specifier = ">=0.8" },
-]
-
-[[package]]
 name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1024,6 +971,59 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ae/5f/57ff8b434839e70dab45601284ea413e947a63799891b7553e5960a793a8/tqdm-4.68.4.tar.gz", hash = "sha256:19829c9673638f2a0b8617da4cdcb927e831cd88bcfcb6e78d42a4d1af131520", size = 792418, upload-time = "2026-07-07T09:58:18.369Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/22/2a/5e5e750890ada51017d18d0d4c30da696e5b5bd3180947729927628fc3cb/tqdm-4.68.4-py3-none-any.whl", hash = "sha256:5168118b2368f48c561afda8020fd79195b1bdb0bdf8086b88442c267a315dc2", size = 676612, upload-time = "2026-07-07T09:58:16.256Z" },
+]
+
+[[package]]
+name = "ttrpg-npc"
+version = "1.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "evdev" },
+    { name = "faster-whisper" },
+    { name = "httpx" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "ollama" },
+    { name = "piper-tts" },
+    { name = "prompt-toolkit" },
+    { name = "pypdf" },
+    { name = "sounddevice" },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+cuda = [
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cudnn-cu12" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "evdev", specifier = ">=1.7" },
+    { name = "faster-whisper", specifier = ">=1.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "nvidia-cublas-cu12", marker = "extra == 'cuda'" },
+    { name = "nvidia-cudnn-cu12", marker = "extra == 'cuda'", specifier = ">=9" },
+    { name = "ollama", specifier = ">=0.5" },
+    { name = "piper-tts", specifier = ">=1.2" },
+    { name = "prompt-toolkit", specifier = ">=3.0" },
+    { name = "pypdf", specifier = ">=5" },
+    { name = "sounddevice", specifier = ">=0.5" },
+    { name = "websockets", specifier = ">=13" },
+]
+provides-extras = ["cuda"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "ruff", specifier = ">=0.8" },
 ]
 
 [[package]]

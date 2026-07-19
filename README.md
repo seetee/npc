@@ -1,5 +1,6 @@
 # npc — an offline AI NPC for your game table
 
+[![PyPI](https://img.shields.io/pypi/v/ttrpg-npc)](https://pypi.org/project/ttrpg-npc/)
 [![Vibe Coded](https://img.shields.io/badge/vibe-coded-ff69b4)](https://en.wikipedia.org/wiki/Vibe_coding)
 [![Coded with Claude Code](https://img.shields.io/badge/coded%20with-Claude%20Code-cc785c)](https://claude.com/claude-code)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL%20v3-blue)](LICENSE)
@@ -89,32 +90,37 @@ point `config.toml` at it — see
 
 ### 3. This project
 
+The easiest way is from [PyPI](https://pypi.org/project/ttrpg-npc/) — the
+package is `ttrpg-npc`, the installed command is `npc`:
+
+```bash
+uv tool install ttrpg-npc             # or: pipx install ttrpg-npc
+uv tool install "ttrpg-npc[cuda]"     # with NVIDIA GPU (adds CUDA libs for whisper)
+```
+
+That puts `npc` on your PATH (`~/.local/bin`); the `uv run` prefix in the
+examples below becomes optional.
+
+**Or from source**, if you want to hack on it:
+
 ```bash
 git clone https://github.com/seetee/npc.git
 cd npc
 uv sync                               # CPU-only
-uv sync --extra cuda                  # with NVIDIA GPU (adds CUDA libs for whisper)
+uv sync --extra cuda                  # with NVIDIA GPU
 ```
 
-There is no bare `npc` command after this — the program lives inside the
-project's virtualenv, so every command in this README is invoked through uv,
-from the project directory:
+After a source install there is no bare `npc` command — the program lives
+inside the project's virtualenv, so you invoke it through uv, from the
+project directory:
 
 ```bash
 uv run npc <command> …
 ```
 
-If you'd rather type `npc` directly, from any directory, install it once as a
-uv tool:
-
-```bash
-uv tool install --editable ~/path/to/npc
-```
-
-That puts `npc` on your PATH (`~/.local/bin`), and `--editable` means it
-always runs the current code in your clone — pulling new commits is enough,
-no reinstall. From then on `npc run campaigns/mygame` works anywhere; the
-`uv run` prefix in the examples below becomes optional.
+To get a direct `npc` command from a clone too, install it as an editable uv
+tool: `uv tool install --editable ~/path/to/npc` — it then always runs the
+current code in your clone; pulling new commits is enough, no reinstall.
 
 ### 4. Check everything
 
@@ -409,7 +415,9 @@ The full design — pipeline, threads, the event bus, and the five guarantees
 (offline, per-NPC isolation, unleakable secrets, English lock, crash-safe
 writes) — is written up in [ARCHITECTURE.md](ARCHITECTURE.md). Every stage
 sits behind a Protocol, so the whole loop is tested with fakes: no GPU,
-microphone, or LLM server needed for the test suite.
+microphone, or LLM server needed for the test suite. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow (including the prompt
+probe scripts) and [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 

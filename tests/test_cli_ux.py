@@ -157,3 +157,15 @@ def test_overlay_announcement_lines():
     # 0.0.0.0 resolves to a concrete address for the tablet, never 0.0.0.0
     wild = overlay_announcement("0.0.0.0", 8765)
     assert "0.0.0.0" not in wild[0]
+
+
+def test_version_flag(capsys):
+    import pytest
+
+    from npc import __version__
+    from npc.cli import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.strip() == f"npc {__version__}"
