@@ -67,3 +67,12 @@
 - **Lore tier 2 (retrieval)** — chunk + embed big documents (Ollama
   embeddings, offline) and inject only relevant passages; deferred until a
   real campaign outgrows a ~16k context window.
+- **Test-suite trim (~-47 lines)** — next time these files are touched:
+  `test_overlay.py:test_table_safe_tier_is_the_lan_contract` restates the
+  tier block by hand in two tuples (and misses `PlayerSpoke`) — replace with
+  one set-equality over `Event.__subclasses__()`, shorter and catches new
+  events; `test_lan_bind_reachable` carries a bogus `unused_port_or_zero=0`
+  parameter pytest tries to resolve as a fixture;
+  `test_examples.py:test_gallery_shows_both_layouts` pins directory names
+  the parametrized loader already walks; `scripts/render_samples.py` loops a
+  one-entry `SAMPLES` dict.
