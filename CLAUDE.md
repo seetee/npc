@@ -17,7 +17,7 @@ uv run ruff check .
 uv run npc init|doctor|run <campaign-dir>     # scaffold / setup-check / play
 uv run npc doctor --fix <dir>      # also offer safe fixes (model pull, voice download); sudo fixes stay print-only
 uv run npc run <dir> --timings --overlay      # per-turn stage timings / OBS-overlay server
-uv run npc say "text" <dir>  /  npc transcribe file.wav <dir>   # debug TTS / STT
+uv run npc say <dir> "text"  /  npc transcribe <dir> file.wav   # debug TTS / STT
 uv run python scripts/probe_narration.py      # re-check the prompt against real Ollama after prompt/model changes
 uv run python scripts/probe_secrets.py        # re-check the secrets gate (markers, leaks) after locked_block/deny_note changes
 ```

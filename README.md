@@ -415,8 +415,8 @@ uv run pytest                  # unit tests — no audio hardware or Ollama need
 uv run pytest -m integration   # real whisper/piper/ollama smoke tests (auto-skip)
 uv run ruff check .
 
-uv run npc say "test" campaigns/mygame            # debug: TTS only
-uv run npc transcribe clip.wav campaigns/mygame   # debug: STT only
+uv run npc say campaigns/mygame "test"            # debug: TTS only
+uv run npc transcribe campaigns/mygame clip.wav   # debug: STT only
 ```
 
 The full design — pipeline, threads, the event bus, and the five guarantees

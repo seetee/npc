@@ -29,6 +29,14 @@ def _whisper_cache_dir(model_size: str) -> Path:
     return hub / f"models--Systran--faster-whisper-{model_size}"
 
 
+def whisper_detail(device: str) -> str:
+    """Pure so the CPU nudge is testable without loading a model."""
+    if device == "cpu":
+        return ("cached, running on CPU — with an NVIDIA GPU, reinstall as "
+                'ttrpg-npc[cuda] for much faster transcription')
+    return f"cached, running on {device}"
+
+
 def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
     checks: list[CheckResult] = []
 
@@ -76,17 +84,22 @@ def run_checks(config: Config, deep: bool = False) -> list[CheckResult]:
 
     # 3. Whisper model cached (offline after first download)
     cached = _whisper_cache_dir(config.stt.model).exists()
-    if deep and not cached:
+    detail = "cached" if cached else "not downloaded yet"
+    if deep:
+        # Loading it is the only way to learn which device it really got —
+        # the CUDA→CPU fallback is silent, and on a GPU machine that is the
+        # difference between 0.2 s and several seconds per turn.
         try:
             from .stt import WhisperTranscriber
 
-            WhisperTranscriber(config.stt.model, config.stt.language, config.stt.device)
+            transcriber = WhisperTranscriber(config.stt.model, config.stt.language,
+                                             config.stt.device)
             cached = True
+            detail = whisper_detail(transcriber.device)
         except Exception as e:
             checks.append(CheckResult("Whisper model download", False, detail=str(e)))
     checks.append(CheckResult(
-        f"Whisper model ({config.stt.model})", cached,
-        detail="cached" if cached else "not downloaded yet",
+        f"Whisper model ({config.stt.model})", cached, detail=detail,
         fix="npc doctor   # downloads it (needs internet once)",
     ))
 

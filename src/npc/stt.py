@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ctypes
 import glob
+import logging
 import os
 import re
 from typing import Protocol
@@ -88,11 +89,23 @@ def _preload_cuda_libs() -> None:
                 pass
 
 
+def _quiet_third_party_logs() -> None:
+    """Two warnings that made `npc doctor` look broken (#3). Neither is
+    actionable here: the HF one nags about a token this offline project will
+    never set, and ctranslate2's float16→float32 notice is just "you are on
+    CPU" — which doctor now reports as a proper check line instead."""
+    import ctranslate2
+
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+    ctranslate2.set_log_level(logging.ERROR)
+
+
 class WhisperTranscriber:
     def __init__(self, model_size: str = "small", language: str = "auto",
                  device: str = "auto"):
         from faster_whisper import WhisperModel
 
+        _quiet_third_party_logs()
         self.language = None if language == "auto" else language
         if device == "auto":
             _preload_cuda_libs()

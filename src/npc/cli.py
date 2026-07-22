@@ -171,8 +171,13 @@ def cmd_doctor(args) -> int:
             checks = run_checks(config, deep=True)
             print_report(checks)
     all_ok = all(c.ok for c in checks)
-    print("\nAll good — ready to play." if all_ok
-          else "\nFix the FAILs above (commands are copy-pasteable).")
+    if all_ok:
+        print("\nAll good — ready to play.")
+    else:
+        print("\nFix the FAILs above (commands are copy-pasteable).")
+        if not args.fix and any(c.fixer for c in checks if not c.ok):
+            print("Or let npc do the safe ones itself: "
+                  f"npc doctor --fix {args.campaign}")
     return 0 if all_ok else 1
 
 

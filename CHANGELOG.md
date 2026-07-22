@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `npc doctor` no longer prints a copy-pasteable voice-download command that
+  only works inside a source checkout — the hint (and `npc say`'s) now uses the
+  running interpreter, so it works for `uv tool` and `pipx` installs. ([#3])
+- `npc doctor` output is a report again: the Hugging Face "set a HF_TOKEN" nag
+  and ctranslate2's float16→float32 notice are silenced, and the whisper check
+  now names the device it actually got (`cached, running on cuda` / a CPU line
+  that points at the `[cuda]` extra) — the silent GPU→CPU fallback used to be
+  visible only as that cryptic warning. ([#3])
+- `npc doctor` points at `--fix` when a failing check has a safe auto-fix.
+- README/CLAUDE.md documented `npc say` and `npc transcribe` with their
+  arguments reversed; the campaign directory comes first.
 - Install docs: `evdev` publishes no wheels, so **every** install path compiles
   it and needs `python3-dev` + a compiler — not just `pipx`. The README now
   lists them among the system packages, and no longer claims `uv tool install`
@@ -16,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   managed one; `--managed-python` is the no-sudo way out). ([#2])
 
 [#2]: https://github.com/seetee/npc/issues/2
+[#3]: https://github.com/seetee/npc/issues/3
 
 ## [1.0.0] — 2026-07-19
 

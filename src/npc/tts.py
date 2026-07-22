@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 from collections.abc import Iterable
 from pathlib import Path
@@ -19,7 +20,10 @@ class Speaker(Protocol):
 
 
 def download_hint(voice: str, voices_dir: Path) -> str:
-    return (f"uv run python -m piper.download_voices {voice} "
+    """`sys.executable`, not `uv run python`: the hint has to be pasteable from
+    wherever the user is standing, and a pipx/`uv tool` install has no project
+    for `uv run` to resolve — it would build a fresh env without piper in it."""
+    return (f"{sys.executable} -m piper.download_voices {voice} "
             f"--data-dir {voices_dir}")
 
 

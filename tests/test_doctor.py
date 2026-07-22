@@ -1,9 +1,12 @@
 """doctor --fix: the interactive fixer loop (no network, no hardware)."""
 
+import sys
+
 import pytest
 
 from npc.config import Config, TtsConfig
-from npc.doctor import CheckResult, apply_fixes, npc_voice_checks
+from npc.doctor import CheckResult, apply_fixes, npc_voice_checks, whisper_detail
+from npc.tts import download_hint
 
 
 def test_apply_fixes_runs_only_confirmed_fixers():
@@ -36,6 +39,17 @@ def test_apply_fixes_asks_nothing_when_all_pass():
     checks = [CheckResult("fine", True, fixer=lambda: None)]
     assert not apply_fixes(checks, ask=lambda prompt: pytest.fail("should not ask"),
                            out=lambda line: None)
+
+
+def test_cpu_whisper_says_so_and_nudges_toward_the_cuda_extra():
+    assert "CPU" in whisper_detail("cpu") and "cuda" in whisper_detail("cpu")
+    assert "CPU" not in whisper_detail("cuda")
+
+
+def test_voice_download_hint_is_pasteable_outside_a_project(tmp_path):
+    # `uv run python` resolved to an env without piper for tool installs (#3)
+    hint = download_hint("en_GB-alba-medium", tmp_path)
+    assert hint.startswith(sys.executable) and "uv run" not in hint
 
 
 def multi_config(tmp_path, voices):
