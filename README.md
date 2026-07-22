@@ -65,8 +65,9 @@ Disk footprint after setup: roughly 5–6 GB (LLM ≈ 4.5 GB, whisper-small
 ### 1. System packages (Ubuntu/Debian)
 
 ```bash
-sudo apt install libportaudio2        # microphone & speaker access for Python
-sudo usermod -aG input $USER          # lets npc read key press/release events
+sudo apt install libportaudio2                  # microphone & speaker access for Python
+sudo apt install python3-dev build-essential    # to build evdev, the key listener
+sudo usermod -aG input $USER                    # lets npc read key press/release events
 ```
 
 **Log out and back in** after the `usermod` — group changes only apply to new
@@ -101,11 +102,12 @@ uv tool install "ttrpg-npc[cuda]"     # with NVIDIA GPU (adds CUDA libs for whis
 That puts `npc` on your PATH (`~/.local/bin`); the `uv run` prefix in the
 examples below becomes optional.
 
-> **`pipx` fails with `fatal error: Python.h: No such file or directory`?**
-> The `evdev` dependency compiles a small C extension, and pipx builds it
-> against your system Python — which needs the dev headers:
-> `sudo apt install python3-dev`, then retry. `uv tool install` avoids this
-> entirely (uv's managed Pythons bundle their headers).
+> **Install fails with `fatal error: Python.h: No such file or directory`?**
+> The `evdev` dependency ships no prebuilt wheels, so it compiles a small C
+> extension against whichever Python your installer picked — that Python needs
+> its dev headers. Either install them (`sudo apt install python3-dev
+> build-essential`, step 1 above), or have uv build against a managed Python
+> that bundles its own: `uv tool install --managed-python ttrpg-npc`.
 
 **Or from source**, if you want to hack on it:
 

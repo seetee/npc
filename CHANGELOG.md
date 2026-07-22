@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Install docs: `evdev` publishes no wheels, so **every** install path compiles
+  it and needs `python3-dev` + a compiler — not just `pipx`. The README now
+  lists them among the system packages, and no longer claims `uv tool install`
+  avoids the problem (uv prefers an existing system Python over downloading a
+  managed one; `--managed-python` is the no-sudo way out). ([#2])
+
+[#2]: https://github.com/seetee/npc/issues/2
+
 ## [1.0.0] — 2026-07-19
 
 First public release, published to PyPI as
